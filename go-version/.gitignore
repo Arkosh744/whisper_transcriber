@@ -1,3 +1,13 @@
 build/bin
 node_modules
 frontend/dist
+frontend/package-lock.json
+
+# whisper.cpp source + build artifacts
+third_party/
+
+# Vulkan import library for cross-compilation
+# (regenerated via Makefile or manually)
+
+# Models (downloaded at runtime)
+models/
