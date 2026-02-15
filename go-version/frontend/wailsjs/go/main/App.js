@@ -14,12 +14,20 @@ export function ClearFiles() {
   return window['go']['main']['App']['ClearFiles']();
 }
 
+export function DownloadFFmpeg() {
+  return window['go']['main']['App']['DownloadFFmpeg']();
+}
+
 export function DownloadModel() {
   return window['go']['main']['App']['DownloadModel']();
 }
 
 export function GetLanguages() {
   return window['go']['main']['App']['GetLanguages']();
+}
+
+export function IsFFmpegAvailable() {
+  return window['go']['main']['App']['IsFFmpegAvailable']();
 }
 
 export function IsModelAvailable() {

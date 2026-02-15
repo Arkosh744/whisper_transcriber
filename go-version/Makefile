@@ -115,7 +115,7 @@ build-win: whisper-lib-win bindings frontend
 	CGO_LDFLAGS="-L$(WHISPER_WIN)/src -L$(WHISPER_WIN)/ggml/src" \
 	GOOS=windows GOARCH=amd64 \
 	CC=$(WIN_CC) CXX=$(WIN_CXX) CGO_ENABLED=1 \
-		go build -tags desktop,production -ldflags "-w -s -H windowsgui" \
+		go build -tags desktop,production -ldflags "-w -s -H windowsgui -extldflags '-static'" \
 		-o build/bin/whisper_transcriber.exe .
 	@echo "Built: build/bin/whisper_transcriber.exe ($$(du -h build/bin/whisper_transcriber.exe | cut -f1))"
 
@@ -149,13 +149,15 @@ model:
 ffmpeg-win:
 	@mkdir -p build/bin
 	@if [ ! -f build/bin/ffmpeg.exe ]; then \
-		echo "Downloading FFmpeg static build..."; \
-		curl -L -o /tmp/ffmpeg-win.zip \
+		echo "Downloading FFmpeg static build (~200 MB)..."; \
+		curl -L --retry 3 --retry-delay 5 -o /tmp/ffmpeg-win.zip \
 			"https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" && \
-		unzip -o /tmp/ffmpeg-win.zip -d /tmp/ffmpeg-extract && \
-		cp /tmp/ffmpeg-extract/*/bin/ffmpeg.exe build/bin/ && \
-		rm -rf /tmp/ffmpeg-win.zip /tmp/ffmpeg-extract; \
-		echo "FFmpeg downloaded to build/bin/ffmpeg.exe"; \
+		python3 -c "import zipfile,shutil,os; z=zipfile.ZipFile('/tmp/ffmpeg-win.zip'); \
+			f=[n for n in z.namelist() if n.endswith('bin/ffmpeg.exe')][0]; \
+			z.extract(f,'/tmp/ffmpeg-ext'); \
+			shutil.copy2('/tmp/ffmpeg-ext/'+f,'build/bin/ffmpeg.exe')" && \
+		rm -rf /tmp/ffmpeg-win.zip /tmp/ffmpeg-ext; \
+		echo "FFmpeg: build/bin/ffmpeg.exe ($$(du -h build/bin/ffmpeg.exe | cut -f1))"; \
 	else \
 		echo "ffmpeg.exe already exists"; \
 	fi

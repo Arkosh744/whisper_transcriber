@@ -1,6 +1,6 @@
 # Progress — Go Rewrite
 
-## Overall: 95%
+## Overall: 98%
 
 | Phase | Status | Notes |
 |-------|--------|-------|
@@ -10,6 +10,6 @@
 | whisper.cpp Windows | Done | CPU-only, mingw cross |
 | Windows .exe (CPU) | Done | 12 MB PE32+ |
 | Makefile | Done | 12 targets |
-| Vulkan GPU | Done | 55 MB PE32+ with SPIR-V shaders |
-| FFmpeg bundling | Pending | Makefile target ready |
-| Testing | Pending | |
+| Vulkan GPU | Done | 56 MB PE32+, static libstdc++ |
+| FFmpeg bundling | Done | 200 MB static ffmpeg.exe |
+| Testing | Pending | GUI tested on Win11, no unit tests yet |

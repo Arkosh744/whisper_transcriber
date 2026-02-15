@@ -119,6 +119,22 @@ func (a *App) GetLanguages() []LangOption {
 	}
 }
 
+// IsFFmpegAvailable checks if ffmpeg is reachable (bundled or in PATH).
+func (a *App) IsFFmpegAvailable() bool {
+	return IsFFmpegAvailable()
+}
+
+// DownloadFFmpeg downloads a static ffmpeg build. Runs in a goroutine.
+func (a *App) DownloadFFmpeg() {
+	go func() {
+		if err := DownloadFFmpeg(a.ctx); err != nil {
+			wailsRuntime.EventsEmit(a.ctx, "ffmpeg:download:error", err.Error())
+			return
+		}
+		wailsRuntime.EventsEmit(a.ctx, "ffmpeg:download:done", nil)
+	}()
+}
+
 // IsModelAvailable checks if the GGML model exists locally.
 func (a *App) IsModelAvailable() bool {
 	return a.modelManager.IsModelAvailable()

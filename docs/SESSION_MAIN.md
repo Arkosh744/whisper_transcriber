@@ -36,4 +36,12 @@
 - Fixed link order: `-lggml-vulkan -lstdc++` needed in CGO_LDFLAGS (Go duplicates flags)
 - Created symlink chain: ggml-vulkan/ggml-vulkan.a → libggml-vulkan.a in ggml/src/
 - Updated Makefile: whisper-lib-win-vulkan + build-win-vulkan targets with correct paths
-- **Result: 55 MB .exe** — PE32+ GUI x86-64 with Vulkan GPU support
+- **Result: 56 MB .exe** — PE32+ GUI x86-64 with Vulkan GPU support, static libstdc++
+
+## [2026-02-15 14:00:00] FFmpeg bundling + fixes
+
+- Fixed ffmpeg.go: added `runtime.GOOS == "windows"` check for `.exe` extension
+- Downloaded static ffmpeg.exe (200 MB GPL build) from BtbN/FFmpeg-Builds
+- Updated Makefile: ffmpeg-win uses python3 zipfile (unzip not available in WSL2)
+- Added `-extldflags '-static'` to both CPU and Vulkan build targets
+- DLL dependencies verified: only vulkan-1.dll + Windows system DLLs

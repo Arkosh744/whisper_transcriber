@@ -7,6 +7,7 @@
   export let isRunning: boolean = false;
   export let hasFiles: boolean = false;
   export let modelReady: boolean = false;
+  export let ffmpegReady: boolean = false;
 
   const dispatch = createEventDispatcher();
 
@@ -40,7 +41,7 @@
       {#if !isRunning}
         <button
           class="primary start-btn"
-          disabled={!hasFiles || !modelReady}
+          disabled={!hasFiles || !modelReady || !ffmpegReady}
           on:click={() => dispatch('start')}
         >
           Start Transcription
@@ -59,6 +60,16 @@
       Model not found.
       <button class="link-btn" on:click={() => dispatch('download-model')}>
         Download model (~574 MB)
+      </button>
+    </div>
+  {/if}
+
+  {#if !ffmpegReady}
+    <div class="model-notice">
+      <span class="warn-icon">!</span>
+      FFmpeg not found.
+      <button class="link-btn" on:click={() => dispatch('download-ffmpeg')}>
+        Download FFmpeg (~200 MB)
       </button>
     </div>
   {/if}

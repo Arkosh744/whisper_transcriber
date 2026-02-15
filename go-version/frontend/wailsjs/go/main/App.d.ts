@@ -8,9 +8,13 @@ export function CancelTranscription():Promise<void>;
 
 export function ClearFiles():Promise<void>;
 
+export function DownloadFFmpeg():Promise<void>;
+
 export function DownloadModel():Promise<void>;
 
 export function GetLanguages():Promise<Array<main.LangOption>>;
+
+export function IsFFmpegAvailable():Promise<boolean>;
 
 export function IsModelAvailable():Promise<boolean>;
 

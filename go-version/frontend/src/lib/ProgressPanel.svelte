@@ -1,11 +1,13 @@
 <script lang="ts">
   export let modelDownloading: boolean = false;
   export let modelProgress: { percent: number; downloaded: string; total: string } | null = null;
+  export let ffmpegDownloading: boolean = false;
+  export let ffmpegProgress: { percent: number; downloaded: string; total: string } | null = null;
   export let modelLoading: boolean = false;
   export let statusMessage: string = '';
 </script>
 
-{#if modelDownloading || modelLoading || statusMessage}
+{#if modelDownloading || ffmpegDownloading || modelLoading || statusMessage}
   <div class="panel card">
     {#if modelDownloading && modelProgress}
       <div class="download-row">
@@ -15,6 +17,15 @@
       </div>
       <div class="progress-bar-wrap">
         <div class="progress-bar" style="width: {modelProgress.percent}%"></div>
+      </div>
+    {:else if ffmpegDownloading && ffmpegProgress}
+      <div class="download-row">
+        <span>Downloading FFmpeg...</span>
+        <span class="dl-stats">{ffmpegProgress.downloaded} / {ffmpegProgress.total} MB</span>
+        <span class="dl-pct">{ffmpegProgress.percent}%</span>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" style="width: {ffmpegProgress.percent}%"></div>
       </div>
     {:else if modelLoading}
       <div class="loading-row">

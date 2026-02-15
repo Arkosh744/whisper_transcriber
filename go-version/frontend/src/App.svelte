@@ -8,6 +8,8 @@
     GetLanguages,
     IsModelAvailable,
     DownloadModel,
+    IsFFmpegAvailable,
+    DownloadFFmpeg,
     StartTranscription,
     CancelTranscription,
   } from '../wailsjs/go/main/App';
@@ -21,11 +23,14 @@
   let language = 'auto';
   let outputFormat = 'srt';
   let modelReady = false;
+  let ffmpegReady = false;
   let isRunning = false;
 
   // Progress panel state
   let modelDownloading = false;
   let modelProgress: { percent: number; downloaded: string; total: string } | null = null;
+  let ffmpegDownloading = false;
+  let ffmpegProgress: { percent: number; downloaded: string; total: string } | null = null;
   let modelLoading = false;
   let statusMessage = '';
 
@@ -41,6 +46,7 @@
     // Load initial data
     languages = await GetLanguages();
     modelReady = await IsModelAvailable();
+    ffmpegReady = await IsFFmpegAvailable();
 
     // File status events
     on('file:status', (data: any) => {
@@ -91,6 +97,26 @@
       modelDownloading = false;
       modelProgress = null;
       statusMessage = 'Download error: ' + errMsg;
+    });
+
+    // FFmpeg events
+    on('ffmpeg:download:progress', (data: any) => {
+      ffmpegDownloading = true;
+      ffmpegProgress = data;
+    });
+
+    on('ffmpeg:download:done', () => {
+      ffmpegDownloading = false;
+      ffmpegProgress = null;
+      ffmpegReady = true;
+      statusMessage = 'FFmpeg downloaded!';
+      setTimeout(() => { statusMessage = ''; }, 3000);
+    });
+
+    on('ffmpeg:download:error', (errMsg: string) => {
+      ffmpegDownloading = false;
+      ffmpegProgress = null;
+      statusMessage = 'FFmpeg download error: ' + errMsg;
     });
 
     on('transcription:complete', (data: any) => {
@@ -147,6 +173,11 @@
     DownloadModel();
     modelDownloading = true;
   }
+
+  function handleDownloadFFmpeg() {
+    DownloadFFmpeg();
+    ffmpegDownloading = true;
+  }
 </script>
 
 <div class="app-header">
@@ -156,6 +187,8 @@
 <ProgressPanel
   {modelDownloading}
   {modelProgress}
+  {ffmpegDownloading}
+  {ffmpegProgress}
   {modelLoading}
   {statusMessage}
 />
@@ -167,9 +200,11 @@
   {isRunning}
   hasFiles={files.length > 0}
   {modelReady}
+  {ffmpegReady}
   on:start={handleStart}
   on:cancel={handleCancel}
   on:download-model={handleDownloadModel}
+  on:download-ffmpeg={handleDownloadFFmpeg}
 />
 
 <FileList
