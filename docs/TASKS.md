@@ -1,0 +1,25 @@
+# Tasks — Whisper Transcriber Go Rewrite
+
+## In Progress
+
+- [ ] [80%] Vulkan GPU build — cross-compile whisper.cpp with Vulkan for Windows
+- [ ] [0%] FFmpeg bundling — download static ffmpeg.exe for Windows
+
+## Completed
+
+- [x] [100%] Go backend code — types, model, ffmpeg, transcriber, formatter, app, main (2026-02-14)
+- [x] [100%] Svelte frontend — App, FileList, Controls, ProgressPanel, style (2026-02-14)
+- [x] [100%] whisper.cpp static lib (Linux) — CPU-only build, cmake (2026-02-15)
+- [x] [100%] whisper.cpp static lib (Windows) — cross-compile with mingw, CPU-only (2026-02-15)
+- [x] [100%] Go CGo compilation — verified with whisper.cpp bindings (2026-02-15)
+- [x] [100%] Wails JS bindings — regenerated 8 methods + 3 models (2026-02-15)
+- [x] [100%] Windows .exe — 12 MB cross-compiled PE32+ GUI (2026-02-15)
+- [x] [100%] Makefile — 12 targets for build automation (2026-02-15)
+- [x] [100%] Fix transcriber.go API — Process() 4 args, NextSegment() iterator (2026-02-15)
+
+## Backlog
+
+- [ ] Unit tests for formatters and WAV reader
+- [ ] Integration test with tiny model
+- [ ] Windows GUI testing
+- [ ] NSIS installer
