@@ -1,126 +1,169 @@
-# ─────────────────────────────────────────────────────────────
-#  Whisper Transcriber — Makefile
-# ─────────────────────────────────────────────────────────────
-
-PYTHON     ?= python3
-PIP        ?= pip
-VENV_DIR   ?= venv
-APP_ENTRY  ?= main.py
-SPEC_FILE  ?= build.spec
-
-# Activate venv — every command runs through this automatically
-ifeq ($(OS),Windows_NT)
-    ACTIVATE = $(VENV_DIR)\Scripts\activate &&
-else
-    ACTIVATE = . $(VENV_DIR)/bin/activate &&
-endif
-
-# Use SHELL=bash so `source` / `.` works correctly
 SHELL := /bin/bash
 
-.PHONY: help venv install install-dev run lint format typecheck \
-        clean clean-all build download-model tree
+# Paths
+WHISPER_DIR     := $(CURDIR)/third_party/whisper.cpp
+WHISPER_BUILD   := $(WHISPER_DIR)/build
+WHISPER_WIN     := $(WHISPER_DIR)/build-win
+WHISPER_VULKAN  := $(WHISPER_DIR)/build-win-vulkan
+WHISPER_COMMIT  := 764482c3175d
 
-# ─── Default target ──────────────────────────────────────────
+# CGo flags (Linux)
+export CGO_CFLAGS  = -I$(WHISPER_DIR)/include -I$(WHISPER_DIR)/ggml/include
+export CGO_LDFLAGS = -L$(WHISPER_BUILD)/src -L$(WHISPER_BUILD)/ggml/src
 
-help: ## Show this help
-	@echo ""
-	@echo "  Whisper Transcriber"
-	@echo "  ───────────────────────────────────────"
-	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
-	@echo ""
+# Windows cross-compiler
+WIN_CC  := x86_64-w64-mingw32-gcc
+WIN_CXX := x86_64-w64-mingw32-g++
 
-# ─── Environment ─────────────────────────────────────────────
+.PHONY: help whisper-lib whisper-lib-win whisper-lib-win-vulkan \
+        bindings build-check build-win build-win-vulkan \
+        model ffmpeg-win dev clean
 
-venv: ## Create Python virtual environment
-	$(PYTHON) -m venv $(VENV_DIR)
-	$(ACTIVATE) pip install --upgrade pip
-	@echo ""
-	@echo "  venv created & pip upgraded."
-	@echo "  Manual activate:  source $(VENV_DIR)/bin/activate"
-	@echo ""
+help:
+	@echo "Targets:"
+	@echo "  whisper-lib           Build whisper.cpp (Linux, CPU)"
+	@echo "  whisper-lib-win       Build whisper.cpp (Windows, CPU)"
+	@echo "  whisper-lib-win-vulkan Build whisper.cpp (Windows, Vulkan GPU)"
+	@echo "  bindings              Regenerate Wails JS/TS bindings"
+	@echo "  build-check           Verify Go compilation (Linux)"
+	@echo "  build-win             Cross-compile Windows .exe (CPU)"
+	@echo "  build-win-vulkan      Cross-compile Windows .exe (Vulkan)"
+	@echo "  dev                   Run Wails dev server"
+	@echo "  model                 Download GGML model (~574 MB)"
+	@echo "  ffmpeg-win            Download static ffmpeg.exe"
+	@echo "  clean                 Clean build artifacts"
 
-install: venv ## Install production dependencies (auto-activates venv)
-	$(ACTIVATE) pip install -r requirements.txt
+# --- whisper.cpp ---
 
-install-dev: venv ## Install dev dependencies (auto-activates venv)
-	$(ACTIVATE) pip install -r requirements.txt
-	$(ACTIVATE) pip install ruff mypy
+$(WHISPER_DIR)/CMakeLists.txt:
+	git clone https://github.com/ggml-org/whisper.cpp.git $(WHISPER_DIR)
+	cd $(WHISPER_DIR) && git checkout $(WHISPER_COMMIT)
 
-# ─── Run ─────────────────────────────────────────────────────
+whisper-lib: $(WHISPER_DIR)/CMakeLists.txt
+	@if [ ! -f $(WHISPER_BUILD)/src/libwhisper.a ]; then \
+		echo "Building whisper.cpp (Linux, CPU)..."; \
+		mkdir -p $(WHISPER_BUILD) && cd $(WHISPER_BUILD) && \
+		cmake .. -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
+			-DGGML_CUDA=OFF -DGGML_VULKAN=OFF -DGGML_BLAS=OFF \
+			-DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF && \
+		cmake --build . -j$$(nproc); \
+	else \
+		echo "whisper.cpp (Linux) already built"; \
+	fi
 
-run: ## Launch the GUI application (auto-activates venv)
-	$(ACTIVATE) $(PYTHON) $(APP_ENTRY)
+whisper-lib-win: $(WHISPER_DIR)/CMakeLists.txt
+	@if [ ! -f $(WHISPER_WIN)/src/libwhisper.a ]; then \
+		echo "Building whisper.cpp (Windows, CPU)..."; \
+		mkdir -p $(WHISPER_WIN) && cd $(WHISPER_WIN) && \
+		cmake .. -DCMAKE_SYSTEM_NAME=Windows \
+			-DCMAKE_C_COMPILER=$(WIN_CC) \
+			-DCMAKE_CXX_COMPILER=$(WIN_CXX) \
+			-DCMAKE_C_FLAGS="-D_WIN32_WINNT=0x0601 -DNDEBUG" \
+			-DCMAKE_CXX_FLAGS="-D_WIN32_WINNT=0x0601 -DNDEBUG" \
+			-DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
+			-DGGML_CUDA=OFF -DGGML_VULKAN=OFF -DGGML_BLAS=OFF \
+			-DGGML_OPENMP=OFF \
+			-DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF && \
+		cmake --build . -j$$(nproc) && \
+		cd ggml/src && for f in ggml*.a; do [ ! -f "lib$$f" ] && ln -s "$$f" "lib$$f" || true; done; \
+	else \
+		echo "whisper.cpp (Windows, CPU) already built"; \
+	fi
 
-# ─── Code quality ────────────────────────────────────────────
+VULKAN_WIN := $(CURDIR)/third_party/vulkan-win64
 
-lint: ## Run ruff linter (auto-activates venv)
-	$(ACTIVATE) ruff check .
+whisper-lib-win-vulkan: $(WHISPER_DIR)/CMakeLists.txt
+	@if [ ! -f $(WHISPER_VULKAN)/src/libwhisper.a ]; then \
+		echo "Building whisper.cpp (Windows, Vulkan)..."; \
+		mkdir -p $(WHISPER_VULKAN) && cd $(WHISPER_VULKAN) && \
+		cmake .. -DCMAKE_SYSTEM_NAME=Windows \
+			-DCMAKE_C_COMPILER=$(WIN_CC) \
+			-DCMAKE_CXX_COMPILER=$(WIN_CXX) \
+			-DCMAKE_C_FLAGS="-D_WIN32_WINNT=0x0601 -DNDEBUG" \
+			-DCMAKE_CXX_FLAGS="-D_WIN32_WINNT=0x0601 -DNDEBUG" \
+			-DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
+			-DGGML_VULKAN=ON -DGGML_OPENMP=OFF -DGGML_BLAS=OFF -DGGML_CUDA=OFF \
+			-DVulkan_LIBRARY=$(VULKAN_WIN)/libvulkan-1.a \
+			-DVulkan_INCLUDE_DIR=$(VULKAN_WIN)/include \
+			-DVulkan_GLSLC_EXECUTABLE=$$(which glslc) \
+			-DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF && \
+		cmake --build . -j$$(nproc) && \
+		cd ggml/src && \
+		for f in ggml*.a; do [ ! -f "lib$$f" ] && ln -s "$$f" "lib$$f" || true; done && \
+		ln -sf ggml-vulkan/ggml-vulkan.a libggml-vulkan.a; \
+	else \
+		echo "whisper.cpp (Windows, Vulkan) already built"; \
+	fi
 
-format: ## Auto-format code with ruff (auto-activates venv)
-	$(ACTIVATE) ruff format .
+# --- Go / Wails ---
 
-typecheck: ## Run mypy type checker (auto-activates venv)
-	$(ACTIVATE) mypy --ignore-missing-imports .
+bindings: whisper-lib
+	wails generate module
 
-# ─── Build ───────────────────────────────────────────────────
+build-check: whisper-lib
+	@echo "Verifying Go compilation..."
+	go build -v ./...
+	@echo "OK"
 
-build: ## Build standalone .exe with PyInstaller (auto-activates venv)
-	$(ACTIVATE) pyinstaller $(SPEC_FILE) --noconfirm
-	@echo ""
-	@echo "  Build output: dist/WhisperTranscriber/"
-	@echo ""
+dev: whisper-lib bindings
+	wails dev
 
-# ─── Model ───────────────────────────────────────────────────
+build-win: whisper-lib-win bindings frontend
+	@echo "Cross-compiling Windows .exe (CPU)..."
+	@mkdir -p build/bin
+	CGO_CFLAGS="-I$(WHISPER_DIR)/include -I$(WHISPER_DIR)/ggml/include" \
+	CGO_LDFLAGS="-L$(WHISPER_WIN)/src -L$(WHISPER_WIN)/ggml/src" \
+	GOOS=windows GOARCH=amd64 \
+	CC=$(WIN_CC) CXX=$(WIN_CXX) CGO_ENABLED=1 \
+		go build -tags desktop,production -ldflags "-w -s -H windowsgui -extldflags '-static'" \
+		-o build/bin/whisper_transcriber.exe .
+	@echo "Built: build/bin/whisper_transcriber.exe ($$(du -h build/bin/whisper_transcriber.exe | cut -f1))"
 
-download-model: ## Download whisper large-v3 model to models/ folder
-	$(ACTIVATE) $(PYTHON) -c "\
-	import os; \
-	from config import get_model_download_dir, HUGGINGFACE_REPO; \
-	import huggingface_hub; \
-	d = get_model_download_dir(); \
-	os.makedirs(d, exist_ok=True); \
-	print(f'Downloading to {d}...'); \
-	huggingface_hub.snapshot_download( \
-	    repo_id=HUGGINGFACE_REPO, \
-	    local_dir=d, \
-	    local_dir_use_symlinks=False, \
-	    allow_patterns=['config.json','preprocessor_config.json','model.bin','tokenizer.json','vocabulary.*'] \
-	); \
-	print('Done!')"
+build-win-vulkan: whisper-lib-win-vulkan bindings frontend
+	@echo "Cross-compiling Windows .exe (Vulkan GPU)..."
+	@mkdir -p build/bin
+	CGO_CFLAGS="-I$(WHISPER_DIR)/include -I$(WHISPER_DIR)/ggml/include" \
+	CGO_LDFLAGS="-L$(WHISPER_VULKAN)/src -L$(WHISPER_VULKAN)/ggml/src -L$(VULKAN_WIN) -lggml-vulkan -lvulkan-1 -lstdc++" \
+	GOOS=windows GOARCH=amd64 \
+	CC=$(WIN_CC) CXX=$(WIN_CXX) CGO_ENABLED=1 \
+		go build -tags desktop,production -ldflags "-w -s -H windowsgui -extldflags '-static'" \
+		-o build/bin/whisper_transcriber.exe .
+	@echo "Built: build/bin/whisper_transcriber.exe Vulkan ($$(du -h build/bin/whisper_transcriber.exe | cut -f1))"
 
-# ─── Cleanup ─────────────────────────────────────────────────
+frontend:
+	@cd frontend && npm install --silent && npm run build
+	@echo "Frontend built"
 
-clean: ## Remove __pycache__, .pyc, build artifacts
-	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	rm -rf build/ dist/ *.egg-info/
+# --- Assets ---
 
-clean-all: clean ## Clean everything including venv and models
-	rm -rf $(VENV_DIR)/
-	rm -rf models/
+model:
+	@mkdir -p models
+	@if [ ! -f models/ggml-large-v3-turbo-q5_0.bin ]; then \
+		echo "Downloading GGML model (~574 MB)..."; \
+		curl -L --progress-bar -o models/ggml-large-v3-turbo-q5_0.bin \
+			"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"; \
+	else \
+		echo "Model already exists"; \
+	fi
 
-# ─── Info ────────────────────────────────────────────────────
+ffmpeg-win:
+	@mkdir -p build/bin
+	@if [ ! -f build/bin/ffmpeg.exe ]; then \
+		echo "Downloading FFmpeg static build (~200 MB)..."; \
+		curl -L --retry 3 --retry-delay 5 -o /tmp/ffmpeg-win.zip \
+			"https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" && \
+		python3 -c "import zipfile,shutil,os; z=zipfile.ZipFile('/tmp/ffmpeg-win.zip'); \
+			f=[n for n in z.namelist() if n.endswith('bin/ffmpeg.exe')][0]; \
+			z.extract(f,'/tmp/ffmpeg-ext'); \
+			shutil.copy2('/tmp/ffmpeg-ext/'+f,'build/bin/ffmpeg.exe')" && \
+		rm -rf /tmp/ffmpeg-win.zip /tmp/ffmpeg-ext; \
+		echo "FFmpeg: build/bin/ffmpeg.exe ($$(du -h build/bin/ffmpeg.exe | cut -f1))"; \
+	else \
+		echo "ffmpeg.exe already exists"; \
+	fi
 
-tree: ## Show project structure
-	@echo ""
-	@echo "  whisper_transcriber/"
-	@find . -not -path './.git/*' \
-		-not -path './.git' \
-		-not -path './venv/*' \
-		-not -path './venv' \
-		-not -path './models/*' \
-		-not -path './models' \
-		-not -path './__pycache__/*' \
-		-not -path './*/__pycache__/*' \
-		-not -path './*/*/__pycache__/*' \
-		-not -name '*.pyc' \
-		-not -path './dist/*' \
-		-not -path './build/*' \
-		| sort \
-		| sed 's|^./||' \
-		| sed 's|[^/]*/|  │  |g' \
-		| sed '1d'
-	@echo ""
+# --- Cleanup ---
+
+clean:
+	rm -rf $(WHISPER_BUILD) $(WHISPER_WIN) $(WHISPER_VULKAN)
+	rm -rf build/bin
