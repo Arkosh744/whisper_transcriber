@@ -1,11 +1,11 @@
-package main
+package infrastructure
 
 import (
 	"os"
 	"path/filepath"
 )
 
-func appDataDir() string {
+func AppDataDir() string {
 	exePath, _ := os.Executable()
 	dir := filepath.Dir(exePath)
 

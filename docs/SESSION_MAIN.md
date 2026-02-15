@@ -121,3 +121,33 @@
 - Frontend: App.svelte, FileList.svelte, ProgressPanel.svelte, Controls.svelte
 - Bindings: App.js, App.d.ts (added AddFiles, CancelDownload)
 - Verified: `make build-check` passes, gopls diagnostics clean, no `context.Background` in batch code
+
+## [2026-02-15 20:00:00] Рефакторинг: 3-слойная Clean Architecture
+
+### Фаза 1 — Domain + Infrastructure
+- Создан `internal/domain/`: model.go (FileItem, Segment, TranscriptionResult, LangOption, TranscriptionConfig, GenerateID), errors.go (ErrModelNotLoaded, ErrFFmpegNotFound), progress.go (ProgressFunc, StatusFunc), interfaces.go (Transcriber, ModelManager, FFmpegService, Formatter, FileQueue)
+- Создан `internal/infrastructure/`: paths.go (AppDataDir), http.go (HTTPGetWithRetry)
+
+### Фаза 2 — Сервисы
+- `internal/service/file_queue.go` — FileQueue с mutex, Add/Remove/Clear/Snapshot/UpdateStatus
+- `internal/service/formatter.go` — Formatter с WriteOutput (txt/srt/json/md)
+- `internal/service/ffmpeg.go` — FFmpegSvc: IsAvailable, Download (callback вместо EventsEmit), ExtractAudio
+- `internal/service/model_manager.go` — ModelMgr: ModelPath, IsModelAvailable, DownloadModel (callback)
+- `internal/service/transcriber.go` — WhisperTranscriber: LoadModel, TranscribeFile (onProgress callback вместо wailsCtx)
+- `internal/service/batch.go` — BatchProcessor: Run с callback-ами (onStatus, onComplete, onDone)
+
+### Фаза 3 — Переключение
+- Создан `events.go` — callback-хелперы (downloadProgressCb, fileStatusCb) с замыканиями на EventsEmit
+- Переписан `app.go` — тонкий Wails-адаптер, все зависимости через конструктор (DI)
+- Обновлён `main.go` — DI wiring: создание всех сервисов и BatchProcessor
+- Удалены старые файлы: types.go, transcriber.go, model.go, ffmpeg.go, formatter.go, paths.go, http.go
+
+### Фаза 4 — Верификация
+- `go build ./...` — OK
+- `go vet ./...` — OK
+- `gopls diagnostics` на 15 файлах — 0 ошибок
+
+### Файлы изменены
+- Новые (10): internal/domain/{model,errors,progress,interfaces}.go, internal/infrastructure/{paths,http}.go, internal/service/{file_queue,formatter,ffmpeg,model_manager,transcriber,batch}.go, events.go
+- Переписаны (2): app.go, main.go
+- Удалены (7): types.go, transcriber.go, model.go, ffmpeg.go, formatter.go, paths.go, http.go

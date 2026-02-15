@@ -1,4 +1,4 @@
-package main
+package infrastructure
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func httpGetWithRetry(ctx context.Context, url string, maxRetries int) (*http.Response, error) {
+func HTTPGetWithRetry(ctx context.Context, url string, maxRetries int) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {

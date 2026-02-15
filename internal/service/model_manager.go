@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"context"
@@ -7,7 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"whisper-transcriber/pkg/models"
+	"whisper-transcriber/internal/infrastructure"
 )
 
 const (
@@ -15,31 +16,26 @@ const (
 	modelURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
 )
 
-type ModelManager struct {
-	ctx      context.Context
+type ModelMgr struct {
 	modelDir string
 }
 
-func NewModelManager() *ModelManager {
-	return &ModelManager{
-		modelDir: filepath.Join(appDataDir(), "models"),
+func NewModelManager(appDir string) *ModelMgr {
+	return &ModelMgr{
+		modelDir: filepath.Join(appDir, "models"),
 	}
 }
 
-func (m *ModelManager) SetContext(ctx context.Context) {
-	m.ctx = ctx
-}
-
-func (m *ModelManager) ModelPath() string {
+func (m *ModelMgr) ModelPath() string {
 	return filepath.Join(m.modelDir, modelFileName)
 }
 
-func (m *ModelManager) IsModelAvailable() bool {
+func (m *ModelMgr) IsModelAvailable() bool {
 	info, err := os.Stat(m.ModelPath())
 	return err == nil && info.Size() > 0
 }
 
-func (m *ModelManager) DownloadModel(ctx context.Context) error {
+func (m *ModelMgr) DownloadModel(ctx context.Context, onProgress models.ProgressFunc) error {
 	if err := os.MkdirAll(m.modelDir, 0755); err != nil {
 		return fmt.Errorf("cannot create models dir: %w", err)
 	}
@@ -47,7 +43,7 @@ func (m *ModelManager) DownloadModel(ctx context.Context) error {
 	tmpPath := m.ModelPath() + ".tmp"
 	defer os.Remove(tmpPath)
 
-	resp, err := httpGetWithRetry(ctx, modelURL, 3)
+	resp, err := infrastructure.HTTPGetWithRetry(ctx, modelURL, 3)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)
 	}
@@ -75,15 +71,11 @@ func (m *ModelManager) DownloadModel(ctx context.Context) error {
 				return writeErr
 			}
 			downloaded += int64(n)
-			if total > 0 && m.ctx != nil {
+			if total > 0 && onProgress != nil {
 				pct := int(float64(downloaded) / float64(total) * 100)
-				downloadedMB := float64(downloaded) / (1024 * 1024)
-				totalMB := float64(total) / (1024 * 1024)
-				wailsRuntime.EventsEmit(m.ctx, "model:download:progress", map[string]interface{}{
-					"percent":    pct,
-					"downloaded": fmt.Sprintf("%.0f", downloadedMB),
-					"total":      fmt.Sprintf("%.0f", totalMB),
-				})
+				downloadedMB := fmt.Sprintf("%.0f", float64(downloaded)/(1024*1024))
+				totalMB := fmt.Sprintf("%.0f", float64(total)/(1024*1024))
+				onProgress(pct, downloadedMB, totalMB)
 			}
 		}
 		if readErr == io.EOF {

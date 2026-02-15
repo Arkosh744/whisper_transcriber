@@ -4,6 +4,9 @@ import (
 	"embed"
 	"log"
 
+	"whisper-transcriber/internal/infrastructure"
+	"whisper-transcriber/internal/service"
+
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -14,13 +17,22 @@ import (
 var assets embed.FS
 
 func main() {
-	app := NewApp()
+	appDir := infrastructure.AppDataDir()
+
+	transcriber := service.NewTranscriber()
+	modelMgr := service.NewModelManager(appDir)
+	ffmpeg := service.NewFFmpegService(appDir)
+	formatter := service.NewFormatter()
+	queue := service.NewFileQueue()
+	batch := service.NewBatchProcessor(transcriber, ffmpeg, formatter, queue)
+
+	app := NewApp(transcriber, modelMgr, ffmpeg, formatter, queue, batch)
 
 	err := wails.Run(&options.App{
-		Title:    "Whisper Transcriber",
-		Width:    900,
-		Height:   640,
-		MinWidth: 700,
+		Title:     "Whisper Transcriber",
+		Width:     900,
+		Height:    640,
+		MinWidth:  700,
 		MinHeight: 500,
 		AssetServer: &assetserver.Options{
 			Assets: assets,

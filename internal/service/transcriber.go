@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"context"
@@ -9,24 +9,20 @@ import (
 	"sync"
 
 	whisper "github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"whisper-transcriber/pkg/models"
 )
 
-type Transcriber struct {
-	wailsCtx context.Context
-	model    whisper.Model
-	mu       sync.Mutex
+type WhisperTranscriber struct {
+	model whisper.Model
+	mu    sync.Mutex
 }
 
-func NewTranscriber() *Transcriber {
-	return &Transcriber{}
+func NewTranscriber() *WhisperTranscriber {
+	return &WhisperTranscriber{}
 }
 
-func (t *Transcriber) SetContext(ctx context.Context) {
-	t.wailsCtx = ctx
-}
-
-func (t *Transcriber) LoadModel(modelPath string) error {
+func (t *WhisperTranscriber) LoadModel(modelPath string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -42,23 +38,22 @@ func (t *Transcriber) LoadModel(modelPath string) error {
 	return nil
 }
 
-func (t *Transcriber) IsLoaded() bool {
+func (t *WhisperTranscriber) IsLoaded() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.model != nil
 }
 
-func (t *Transcriber) TranscribeFile(
+func (t *WhisperTranscriber) TranscribeFile(
 	ctx context.Context,
-	fileID string,
-	audioPath string,
-	language string,
-) (*TranscriptionResult, error) {
+	fileID, audioPath, language string,
+	onProgress models.ProgressFunc,
+) (*models.TranscriptionResult, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	if t.model == nil {
-		return nil, fmt.Errorf("model not loaded")
+		return nil, models.ErrModelNotLoaded
 	}
 
 	samples, err := readWavSamples(audioPath)
@@ -90,11 +85,8 @@ func (t *Transcriber) TranscribeFile(
 		},
 		nil,
 		func(progress int) {
-			if t.wailsCtx != nil {
-				wailsRuntime.EventsEmit(t.wailsCtx, "transcription:progress", map[string]interface{}{
-					"fileID":   fileID,
-					"progress": progress,
-				})
+			if onProgress != nil {
+				onProgress(progress, "", "")
 			}
 		},
 	); err != nil {
@@ -104,7 +96,7 @@ func (t *Transcriber) TranscribeFile(
 		return nil, fmt.Errorf("transcription failed: %w", err)
 	}
 
-	var segments []Segment
+	var segments []models.Segment
 	for i := 0; ; i++ {
 		seg, err := wCtx.NextSegment()
 		if err == io.EOF {
@@ -113,7 +105,7 @@ func (t *Transcriber) TranscribeFile(
 		if err != nil {
 			return nil, fmt.Errorf("error reading segment: %w", err)
 		}
-		segments = append(segments, Segment{
+		segments = append(segments, models.Segment{
 			Index: seg.Num,
 			Start: seg.Start.Seconds(),
 			End:   seg.End.Seconds(),
@@ -121,14 +113,14 @@ func (t *Transcriber) TranscribeFile(
 		})
 	}
 
-	return &TranscriptionResult{
+	return &models.TranscriptionResult{
 		FilePath: audioPath,
 		Language: language,
 		Segments: segments,
 	}, nil
 }
 
-func (t *Transcriber) Close() {
+func (t *WhisperTranscriber) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.model != nil {
@@ -153,11 +145,11 @@ func readWavSamples(path string) ([]float32, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
-	dataSize := fi.Size() - 44 // subtract WAV header
+	dataSize := fi.Size() - 44
 	if dataSize < 0 {
 		dataSize = 0
 	}
-	n := dataSize / 2 // 2 bytes per int16 sample
+	n := dataSize / 2
 	samples := make([]float32, 0, n)
 	for {
 		var sample int16

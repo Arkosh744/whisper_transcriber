@@ -3,41 +3,52 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
+
+	"whisper-transcriber/pkg/models"
+	"whisper-transcriber/internal/service"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type App struct {
 	ctx            context.Context
-	transcriber    *Transcriber
-	modelManager   *ModelManager
-	files          []FileItem
-	mu             sync.Mutex
+	transcriber    models.Transcriber
+	modelManager   models.ModelManager
+	ffmpeg         models.FFmpegService
+	formatter      models.Formatter
+	queue          models.FileQueue
+	batch          *service.BatchProcessor
 	batchCancel    context.CancelFunc
 	downloadCancel context.CancelFunc
 }
 
-func NewApp() *App {
+func NewApp(
+	transcriber models.Transcriber,
+	modelManager models.ModelManager,
+	ffmpeg models.FFmpegService,
+	formatter models.Formatter,
+	queue models.FileQueue,
+	batch *service.BatchProcessor,
+) *App {
 	return &App{
-		transcriber:  NewTranscriber(),
-		modelManager: NewModelManager(),
+		transcriber:  transcriber,
+		modelManager: modelManager,
+		ffmpeg:       ffmpeg,
+		formatter:    formatter,
+		queue:        queue,
+		batch:        batch,
 	}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.transcriber.SetContext(ctx)
-	a.modelManager.SetContext(ctx)
 }
 
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) shutdown(_ context.Context) {
 	a.transcriber.Close()
 }
 
-func (a *App) BrowseFiles() ([]FileItem, error) {
+func (a *App) BrowseFiles() ([]models.FileItem, error) {
 	selection, err := wailsRuntime.OpenMultipleFilesDialog(a.ctx, wailsRuntime.OpenDialogOptions{
 		Title: "Select Video Files",
 		Filters: []wailsRuntime.FileFilter{
@@ -50,47 +61,23 @@ func (a *App) BrowseFiles() ([]FileItem, error) {
 		return nil, err
 	}
 
-	var items []FileItem
-	for _, path := range selection {
-		sizeMB := 0
-		if info, err := os.Stat(path); err == nil {
-			sizeMB = int(info.Size() / (1024 * 1024))
-		}
-		items = append(items, FileItem{
-			ID:     generateID(),
-			Path:   path,
-			Name:   filepath.Base(path),
-			SizeMB: sizeMB,
-			Status: "pending",
-		})
-	}
+	return a.queue.Add(selection), nil
+}
 
-	a.mu.Lock()
-	a.files = append(a.files, items...)
-	a.mu.Unlock()
-
-	return items, nil
+func (a *App) AddFiles(paths []string) ([]models.FileItem, error) {
+	return a.queue.Add(paths), nil
 }
 
 func (a *App) ClearFiles() {
-	a.mu.Lock()
-	a.files = nil
-	a.mu.Unlock()
+	a.queue.Clear()
 }
 
 func (a *App) RemoveFile(id string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	for i, f := range a.files {
-		if f.ID == id {
-			a.files = append(a.files[:i], a.files[i+1:]...)
-			return
-		}
-	}
+	a.queue.Remove(id)
 }
 
-func (a *App) GetLanguages() []LangOption {
-	return []LangOption{
+func (a *App) GetLanguages() []models.LangOption {
+	return []models.LangOption{
 		{Code: "auto", Name: "Auto-detect"},
 		{Code: "ru", Name: "Russian"},
 		{Code: "en", Name: "English"},
@@ -111,15 +98,15 @@ func (a *App) GetLanguages() []LangOption {
 }
 
 func (a *App) IsFFmpegAvailable() bool {
-	return IsFFmpegAvailable()
+	return a.ffmpeg.IsAvailable()
 }
 
 func (a *App) DownloadFFmpeg() {
-	downloadCtx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(a.ctx)
 	a.downloadCancel = cancel
 	go func() {
 		defer func() { a.downloadCancel = nil }()
-		if err := DownloadFFmpeg(downloadCtx); err != nil {
+		if err := a.ffmpeg.Download(ctx, downloadProgressCb(a.ctx, "ffmpeg:download:progress")); err != nil {
 			wailsRuntime.EventsEmit(a.ctx, "ffmpeg:download:error", err.Error())
 			return
 		}
@@ -132,11 +119,11 @@ func (a *App) IsModelAvailable() bool {
 }
 
 func (a *App) DownloadModel() {
-	downloadCtx, cancel := context.WithCancel(a.ctx)
+	ctx, cancel := context.WithCancel(a.ctx)
 	a.downloadCancel = cancel
 	go func() {
 		defer func() { a.downloadCancel = nil }()
-		if err := a.modelManager.DownloadModel(downloadCtx); err != nil {
+		if err := a.modelManager.DownloadModel(ctx, downloadProgressCb(a.ctx, "model:download:progress")); err != nil {
 			wailsRuntime.EventsEmit(a.ctx, "model:download:error", err.Error())
 			return
 		}
@@ -150,12 +137,12 @@ func (a *App) CancelDownload() {
 	}
 }
 
-func (a *App) StartTranscription(config TranscriptionConfig) error {
+func (a *App) StartTranscription(config models.TranscriptionConfig) error {
 	if !a.modelManager.IsModelAvailable() {
 		return fmt.Errorf("model not found — download it first")
 	}
 
-	if !IsFFmpegAvailable() {
+	if !a.ffmpeg.IsAvailable() {
 		return fmt.Errorf("FFmpeg not found — download it first")
 	}
 
@@ -170,7 +157,20 @@ func (a *App) StartTranscription(config TranscriptionConfig) error {
 	batchCtx, cancel := context.WithCancel(a.ctx)
 	a.batchCancel = cancel
 
-	go a.runBatch(batchCtx, config)
+	go a.batch.Run(
+		batchCtx,
+		config,
+		fileStatusCb(a.ctx),
+		func(fileID, outputPath string) {
+			wailsRuntime.EventsEmit(a.ctx, "transcription:complete", map[string]interface{}{
+				"fileID":     fileID,
+				"outputPath": outputPath,
+			})
+		},
+		func() {
+			wailsRuntime.EventsEmit(a.ctx, "batch:complete", nil)
+		},
+	)
 	return nil
 }
 
@@ -180,87 +180,3 @@ func (a *App) CancelTranscription() {
 	}
 }
 
-func (a *App) AddFiles(paths []string) ([]FileItem, error) {
-	var items []FileItem
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		if info.IsDir() {
-			continue
-		}
-		sizeMB := int(info.Size() / (1024 * 1024))
-		items = append(items, FileItem{
-			ID:     generateID(),
-			Path:   path,
-			Name:   filepath.Base(path),
-			SizeMB: sizeMB,
-			Status: "pending",
-		})
-	}
-
-	a.mu.Lock()
-	a.files = append(a.files, items...)
-	a.mu.Unlock()
-
-	return items, nil
-}
-
-func (a *App) runBatch(ctx context.Context, config TranscriptionConfig) {
-	a.mu.Lock()
-	filesToProcess := make([]FileItem, len(a.files))
-	copy(filesToProcess, a.files)
-	a.mu.Unlock()
-
-	for _, fileItem := range filesToProcess {
-		select {
-		case <-ctx.Done():
-			a.emitStatus(fileItem.ID, "cancelled", 0, "")
-			wailsRuntime.EventsEmit(a.ctx, "batch:complete", nil)
-			return
-		default:
-		}
-
-		a.emitStatus(fileItem.ID, "processing", 0, "")
-
-		wavPath, err := ExtractAudio(ctx, fileItem.Path)
-		if err != nil {
-			a.emitStatus(fileItem.ID, "error", 0, err.Error())
-			continue
-		}
-		audioPath := wavPath
-
-		result, err := a.transcriber.TranscribeFile(ctx, fileItem.ID, audioPath, config.Language)
-
-		os.Remove(audioPath)
-
-		if err != nil {
-			a.emitStatus(fileItem.ID, "error", 0, err.Error())
-			continue
-		}
-
-		outPath, err := WriteOutput(result, fileItem.Path, config.OutputFormat)
-		if err != nil {
-			a.emitStatus(fileItem.ID, "error", 0, err.Error())
-			continue
-		}
-
-		a.emitStatus(fileItem.ID, "done", 100, "")
-		wailsRuntime.EventsEmit(a.ctx, "transcription:complete", map[string]interface{}{
-			"fileID":     fileItem.ID,
-			"outputPath": outPath,
-		})
-	}
-
-	wailsRuntime.EventsEmit(a.ctx, "batch:complete", nil)
-}
-
-func (a *App) emitStatus(fileID, status string, progress int, errMsg string) {
-	wailsRuntime.EventsEmit(a.ctx, "file:status", map[string]interface{}{
-		"fileID":   fileID,
-		"status":   status,
-		"progress": progress,
-		"error":    errMsg,
-	})
-}

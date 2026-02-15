@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"encoding/json"
@@ -6,17 +6,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"whisper-transcriber/pkg/models"
 )
 
-func WriteOutput(result *TranscriptionResult, sourcePath string, format string) (string, error) {
+type Formatter struct{}
+
+func NewFormatter() *Formatter {
+	return &Formatter{}
+}
+
+func (f *Formatter) WriteOutput(result *models.TranscriptionResult, sourcePath, format string) (string, error) {
 	valid := map[string]bool{"txt": true, "srt": true, "json": true, "md": true}
 	if !valid[format] {
 		return "", fmt.Errorf("unsupported format: %s", format)
 	}
 
-	ext := "." + format
 	base := strings.TrimSuffix(sourcePath, filepath.Ext(sourcePath))
-	outPath := base + ext
+	outPath := base + "." + format
 
 	var content string
 	var err error
@@ -40,7 +47,7 @@ func WriteOutput(result *TranscriptionResult, sourcePath string, format string) 
 	return outPath, os.WriteFile(outPath, []byte(content), 0644)
 }
 
-func formatTXT(r *TranscriptionResult) string {
+func formatTXT(r *models.TranscriptionResult) string {
 	var sb strings.Builder
 	for _, seg := range r.Segments {
 		mm := int(seg.Start) / 60
@@ -50,7 +57,7 @@ func formatTXT(r *TranscriptionResult) string {
 	return sb.String()
 }
 
-func formatSRT(r *TranscriptionResult) string {
+func formatSRT(r *models.TranscriptionResult) string {
 	var sb strings.Builder
 	for i, seg := range r.Segments {
 		sb.WriteString(fmt.Sprintf("%d\n", i+1))
@@ -68,7 +75,7 @@ func srtTime(seconds float64) string {
 	return fmt.Sprintf("%02d:%02d:%02d,%03d", h, m, s, ms)
 }
 
-func formatJSON(r *TranscriptionResult) (string, error) {
+func formatJSON(r *models.TranscriptionResult) (string, error) {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return "", err
@@ -76,7 +83,7 @@ func formatJSON(r *TranscriptionResult) (string, error) {
 	return string(data), nil
 }
 
-func formatMarkdown(r *TranscriptionResult) string {
+func formatMarkdown(r *models.TranscriptionResult) string {
 	var sb strings.Builder
 	sb.WriteString("# Transcription\n\n")
 	for _, seg := range r.Segments {

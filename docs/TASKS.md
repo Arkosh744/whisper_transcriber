@@ -2,6 +2,8 @@
 
 ## In Progress
 
+- [x] [100%] Clean Architecture рефакторинг — 3 слоя (domain/service/infrastructure), DI, callbacks вместо EventsEmit (2026-02-15)
+
 ## Completed
 
 - [x] [100%] Bugfixes + polish (14 items) — critical bugs, UX, polish across all tiers (2026-02-15)

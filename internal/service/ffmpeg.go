@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"archive/zip"
@@ -11,47 +11,55 @@ import (
 	"runtime"
 	"strings"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"whisper-transcriber/pkg/models"
+	"whisper-transcriber/internal/infrastructure"
 )
 
 const (
 	ffmpegWinURL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 )
 
-func ffmpegBin() (string, error) {
-	bundled := ffmpegLocalPath()
+type FFmpegSvc struct {
+	appDir string
+}
+
+func NewFFmpegService(appDir string) *FFmpegSvc {
+	return &FFmpegSvc{appDir: appDir}
+}
+
+func (s *FFmpegSvc) localPath() string {
+	name := "ffmpeg"
+	if runtime.GOOS == "windows" {
+		name = "ffmpeg.exe"
+	}
+	return filepath.Join(s.appDir, name)
+}
+
+func (s *FFmpegSvc) binPath() (string, error) {
+	bundled := s.localPath()
 	if _, err := os.Stat(bundled); err == nil {
 		return bundled, nil
 	}
 	p, err := exec.LookPath("ffmpeg")
 	if err != nil {
-		return "", fmt.Errorf("ffmpeg not found: download it via the app or install system-wide")
+		return "", models.ErrFFmpegNotFound
 	}
 	return p, nil
 }
 
-func ffmpegLocalPath() string {
-	dir := appDataDir()
-	name := "ffmpeg"
-	if runtime.GOOS == "windows" {
-		name = "ffmpeg.exe"
-	}
-	return filepath.Join(dir, name)
-}
-
-func IsFFmpegAvailable() bool {
-	_, err := ffmpegBin()
+func (s *FFmpegSvc) IsAvailable() bool {
+	_, err := s.binPath()
 	return err == nil
 }
 
-func DownloadFFmpeg(ctx context.Context) error {
+func (s *FFmpegSvc) Download(ctx context.Context, onProgress models.ProgressFunc) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("auto-download only supported on Windows; install ffmpeg via package manager")
 	}
 
-	dest := ffmpegLocalPath()
+	dest := s.localPath()
 
-	resp, err := httpGetWithRetry(ctx, ffmpegWinURL, 3)
+	resp, err := infrastructure.HTTPGetWithRetry(ctx, ffmpegWinURL, 3)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)
 	}
@@ -82,15 +90,11 @@ func DownloadFFmpeg(ctx context.Context) error {
 				return writeErr
 			}
 			downloaded += int64(n)
-			if total > 0 {
+			if total > 0 && onProgress != nil {
 				pct := int(float64(downloaded) / float64(total) * 100)
-				downloadedMB := float64(downloaded) / (1024 * 1024)
-				totalMB := float64(total) / (1024 * 1024)
-				wailsRuntime.EventsEmit(ctx, "ffmpeg:download:progress", map[string]interface{}{
-					"percent":    pct,
-					"downloaded": fmt.Sprintf("%.0f", downloadedMB),
-					"total":      fmt.Sprintf("%.0f", totalMB),
-				})
+				downloadedMB := fmt.Sprintf("%.0f", float64(downloaded)/(1024*1024))
+				totalMB := fmt.Sprintf("%.0f", float64(total)/(1024*1024))
+				onProgress(pct, downloadedMB, totalMB)
 			}
 		}
 		if readErr == io.EOF {
@@ -102,15 +106,11 @@ func DownloadFFmpeg(ctx context.Context) error {
 	}
 	out.Close()
 
-	if err := extractFFmpegFromZip(tmpZip, dest); err != nil {
-		return fmt.Errorf("extraction failed: %w", err)
-	}
-
-	return nil
+	return extractFFmpegFromZip(tmpZip, dest)
 }
 
-func ExtractAudio(ctx context.Context, inputPath string) (string, error) {
-	ff, err := ffmpegBin()
+func (s *FFmpegSvc) ExtractAudio(ctx context.Context, inputPath string) (string, error) {
+	ff, err := s.binPath()
 	if err != nil {
 		return "", err
 	}
