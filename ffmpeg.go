@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,12 +31,12 @@ func ffmpegBin() (string, error) {
 }
 
 func ffmpegLocalPath() string {
-	exePath, _ := os.Executable()
+	dir := appDataDir()
 	name := "ffmpeg"
 	if runtime.GOOS == "windows" {
 		name = "ffmpeg.exe"
 	}
-	return filepath.Join(filepath.Dir(exePath), name)
+	return filepath.Join(dir, name)
 }
 
 func IsFFmpegAvailable() bool {
@@ -52,15 +51,11 @@ func DownloadFFmpeg(ctx context.Context) error {
 
 	dest := ffmpegLocalPath()
 
-	resp, err := http.Get(ffmpegWinURL)
+	resp, err := httpGetWithRetry(ctx, ffmpegWinURL, 3)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
-	}
 
 	total := resp.ContentLength
 
@@ -71,14 +66,19 @@ func DownloadFFmpeg(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("cannot create temp file: %w", err)
 	}
+	defer out.Close()
 
 	var downloaded int64
 	buf := make([]byte, 64*1024)
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
-				out.Close()
 				return writeErr
 			}
 			downloaded += int64(n)
@@ -97,7 +97,6 @@ func DownloadFFmpeg(ctx context.Context) error {
 			break
 		}
 		if readErr != nil {
-			out.Close()
 			return readErr
 		}
 	}
@@ -110,7 +109,7 @@ func DownloadFFmpeg(ctx context.Context) error {
 	return nil
 }
 
-func ExtractAudio(inputPath string) (string, error) {
+func ExtractAudio(ctx context.Context, inputPath string) (string, error) {
 	ff, err := ffmpegBin()
 	if err != nil {
 		return "", err
@@ -123,7 +122,7 @@ func ExtractAudio(inputPath string) (string, error) {
 	outPath := tmpFile.Name()
 	tmpFile.Close()
 
-	cmd := exec.Command(ff,
+	cmd := exec.CommandContext(ctx, ff,
 		"-i", inputPath,
 		"-ar", "16000",
 		"-ac", "1",
@@ -134,6 +133,9 @@ func ExtractAudio(inputPath string) (string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		os.Remove(outPath)
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("ffmpeg cancelled: %w", ctx.Err())
+		}
 		return "", fmt.Errorf("ffmpeg failed: %s\n%s", err, string(output))
 	}
 	return outPath, nil

@@ -9,6 +9,11 @@ import (
 )
 
 func WriteOutput(result *TranscriptionResult, sourcePath string, format string) (string, error) {
+	valid := map[string]bool{"txt": true, "srt": true, "json": true, "md": true}
+	if !valid[format] {
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+
 	ext := "." + format
 	base := strings.TrimSuffix(sourcePath, filepath.Ext(sourcePath))
 	outPath := base + ext

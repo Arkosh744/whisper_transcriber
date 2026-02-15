@@ -11,12 +11,13 @@ import (
 )
 
 type App struct {
-	ctx          context.Context
-	transcriber  *Transcriber
-	modelManager *ModelManager
-	files        []FileItem
-	mu           sync.Mutex
-	batchCancel  context.CancelFunc
+	ctx            context.Context
+	transcriber    *Transcriber
+	modelManager   *ModelManager
+	files          []FileItem
+	mu             sync.Mutex
+	batchCancel    context.CancelFunc
+	downloadCancel context.CancelFunc
 }
 
 func NewApp() *App {
@@ -114,8 +115,11 @@ func (a *App) IsFFmpegAvailable() bool {
 }
 
 func (a *App) DownloadFFmpeg() {
+	downloadCtx, cancel := context.WithCancel(a.ctx)
+	a.downloadCancel = cancel
 	go func() {
-		if err := DownloadFFmpeg(a.ctx); err != nil {
+		defer func() { a.downloadCancel = nil }()
+		if err := DownloadFFmpeg(downloadCtx); err != nil {
 			wailsRuntime.EventsEmit(a.ctx, "ffmpeg:download:error", err.Error())
 			return
 		}
@@ -128,8 +132,11 @@ func (a *App) IsModelAvailable() bool {
 }
 
 func (a *App) DownloadModel() {
+	downloadCtx, cancel := context.WithCancel(a.ctx)
+	a.downloadCancel = cancel
 	go func() {
-		if err := a.modelManager.DownloadModel(); err != nil {
+		defer func() { a.downloadCancel = nil }()
+		if err := a.modelManager.DownloadModel(downloadCtx); err != nil {
 			wailsRuntime.EventsEmit(a.ctx, "model:download:error", err.Error())
 			return
 		}
@@ -137,9 +144,19 @@ func (a *App) DownloadModel() {
 	}()
 }
 
+func (a *App) CancelDownload() {
+	if a.downloadCancel != nil {
+		a.downloadCancel()
+	}
+}
+
 func (a *App) StartTranscription(config TranscriptionConfig) error {
 	if !a.modelManager.IsModelAvailable() {
 		return fmt.Errorf("model not found — download it first")
+	}
+
+	if !IsFFmpegAvailable() {
+		return fmt.Errorf("FFmpeg not found — download it first")
 	}
 
 	if !a.transcriber.IsLoaded() {
@@ -150,7 +167,7 @@ func (a *App) StartTranscription(config TranscriptionConfig) error {
 		wailsRuntime.EventsEmit(a.ctx, "model:loaded", nil)
 	}
 
-	batchCtx, cancel := context.WithCancel(context.Background())
+	batchCtx, cancel := context.WithCancel(a.ctx)
 	a.batchCancel = cancel
 
 	go a.runBatch(batchCtx, config)
@@ -161,6 +178,33 @@ func (a *App) CancelTranscription() {
 	if a.batchCancel != nil {
 		a.batchCancel()
 	}
+}
+
+func (a *App) AddFiles(paths []string) ([]FileItem, error) {
+	var items []FileItem
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			continue
+		}
+		sizeMB := int(info.Size() / (1024 * 1024))
+		items = append(items, FileItem{
+			ID:     generateID(),
+			Path:   path,
+			Name:   filepath.Base(path),
+			SizeMB: sizeMB,
+			Status: "pending",
+		})
+	}
+
+	a.mu.Lock()
+	a.files = append(a.files, items...)
+	a.mu.Unlock()
+
+	return items, nil
 }
 
 func (a *App) runBatch(ctx context.Context, config TranscriptionConfig) {
@@ -180,7 +224,7 @@ func (a *App) runBatch(ctx context.Context, config TranscriptionConfig) {
 
 		a.emitStatus(fileItem.ID, "processing", 0, "")
 
-		wavPath, err := ExtractAudio(fileItem.Path)
+		wavPath, err := ExtractAudio(ctx, fileItem.Path)
 		if err != nil {
 			a.emitStatus(fileItem.ID, "error", 0, err.Error())
 			continue

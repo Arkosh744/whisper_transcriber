@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -22,9 +21,8 @@ type ModelManager struct {
 }
 
 func NewModelManager() *ModelManager {
-	exePath, _ := os.Executable()
 	return &ModelManager{
-		modelDir: filepath.Join(filepath.Dir(exePath), "models"),
+		modelDir: filepath.Join(appDataDir(), "models"),
 	}
 }
 
@@ -41,7 +39,7 @@ func (m *ModelManager) IsModelAvailable() bool {
 	return err == nil && info.Size() > 0
 }
 
-func (m *ModelManager) DownloadModel() error {
+func (m *ModelManager) DownloadModel(ctx context.Context) error {
 	if err := os.MkdirAll(m.modelDir, 0755); err != nil {
 		return fmt.Errorf("cannot create models dir: %w", err)
 	}
@@ -49,15 +47,11 @@ func (m *ModelManager) DownloadModel() error {
 	tmpPath := m.ModelPath() + ".tmp"
 	defer os.Remove(tmpPath)
 
-	resp, err := http.Get(modelURL)
+	resp, err := httpGetWithRetry(ctx, modelURL, 3)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
-	}
 
 	total := resp.ContentLength
 	out, err := os.Create(tmpPath)
@@ -70,6 +64,11 @@ func (m *ModelManager) DownloadModel() error {
 	buf := make([]byte, 64*1024)
 
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, writeErr := out.Write(buf[:n]); writeErr != nil {

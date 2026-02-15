@@ -4,6 +4,7 @@
 
 ## Completed
 
+- [x] [100%] Bugfixes + polish (14 items) — critical bugs, UX, polish across all tiers (2026-02-15)
 - [x] [100%] Go→root migration — moved Go from go-version/ to root, deleted Python, updated go.mod/wails.json/.gitignore/README (2026-02-15)
 
 - [x] [100%] Vulkan GPU build — 56 MB PE32+ with SPIR-V shaders, static libstdc++ (2026-02-15)
