@@ -4,6 +4,8 @@
   export let files: any[] = [];
   export let disabled: boolean = false;
 
+  let dragOver = false;
+
   const dispatch = createEventDispatcher();
 </script>
 
@@ -23,9 +25,13 @@
   </div>
 
   {#if files.length === 0}
-    <div class="empty">
-      <p>No files added yet</p>
-      <p class="hint">Click "Add Files" to select video or audio files</p>
+    <div class="empty" class:drag-over={dragOver}
+         on:dragover|preventDefault={() => dragOver = true}
+         on:dragleave={() => dragOver = false}
+         on:drop|preventDefault={() => dragOver = false}
+    >
+      <p>{dragOver ? 'Drop files here' : 'No files added yet'}</p>
+      <p class="hint">{dragOver ? '' : 'Click "Add Files" or drag & drop video/audio files'}</p>
     </div>
   {:else}
     <div class="list">
@@ -59,6 +65,9 @@
           <div class="progress-bar-wrap">
             <div class="progress-bar" style="width: {file.progress}%"></div>
           </div>
+        {/if}
+        {#if file.status === 'done' && file.outputPath}
+          <div class="output-path" title={file.outputPath}>{file.outputPath}</div>
         {/if}
       {/each}
     </div>
@@ -192,5 +201,21 @@
     background: var(--accent);
     transition: width 0.3s ease;
     border-radius: 2px;
+  }
+
+  .drag-over {
+    border: 2px dashed var(--accent);
+    background: rgba(59, 130, 246, 0.05);
+    border-radius: 8px;
+  }
+
+  .output-path {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 2px 8px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.7;
   }
 </style>

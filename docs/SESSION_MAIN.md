@@ -67,3 +67,57 @@
 - Replaced .gitignore: Python → Go/Wails oriented
 - Rewrote README.md: Go/Wails/Vulkan instead of Python/CustomTkinter/CUDA
 - Cleaned up: venv/, __pycache__/, go-version/ directory
+
+## [2026-02-15 17:00:00] Finalize, push, merge, release
+
+- Ran `go mod tidy`: removed 7 unused dependencies (go-audio/*, testify, spew, difflib, yaml)
+- Fixed `gh` CLI: switched git protocol from SSH to HTTPS (port 443 issue in WSL2)
+- Pushed `feat/go-rewrite` branch to GitHub
+- Created PR #1: "Rewrite: Python → Go/Wails with Vulkan GPU"
+- Merged PR #1 into master (fast-forward), deleted branch
+- Created release v1.0.0 with two Windows binaries:
+  - `whisper_transcriber.exe` (12 MB, CPU)
+  - `whisper_transcriber_vulkan.exe` (56 MB, Vulkan GPU)
+- Release: https://github.com/Arkosh744/whisper_transcriber/releases/tag/v1.0.0
+
+## [2026-02-15 18:00:00] Frontend UX improvements (6 changes)
+
+- **Error display**: handleBrowse shows errors via statusMessage instead of console.error; handleDownloadModel/handleDownloadFFmpeg wrapped in try/catch
+- **Output path**: transcription:complete handler saves outputPath; FileList shows path below completed files
+- **Drag & drop**: OnFileDrop/OnFileDropOff from Wails runtime; AddFiles Go binding; visual drag-over state in empty FileList
+- **LocalStorage**: language and outputFormat persisted via reactive statements; restored in onMount
+- **Cancel download**: CancelDownload binding; cancel button in ProgressPanel progress bars; handleCancelDownload handler
+- **Cancel race condition**: cancelling state flag; handleCancel sets cancelling=true; batch:complete shows correct message; Controls disables cancel button while cancelling
+- Files changed: App.svelte, FileList.svelte, ProgressPanel.svelte, Controls.svelte
+
+## [2026-02-15 19:00:00] Bugfixes + polish (14 changes across all tiers)
+
+### Tier 1 — Critical bugs
+- **#1 ExtractAudio context**: signature `ExtractAudio(ctx, inputPath)`, `exec.CommandContext` kills ffmpeg on cancel, temp WAV cleaned up
+- **#2 Batch context**: `context.WithCancel(a.ctx)` instead of `context.Background()` — batch goroutine terminates on app shutdown
+- **#3 Pre-allocate WAV samples**: `readWavSamples` computes `(fileSize-44)/2` and pre-allocates slice capacity
+- **#4 defer out.Close()**: `DownloadFFmpeg` uses defer for file handle safety on error paths
+- **#5 FFmpeg check**: `StartTranscription` validates FFmpeg availability before proceeding
+
+### Tier 2 — Core UX
+- **#6 Error display**: `handleBrowse`, `handleDownloadModel`, `handleDownloadFFmpeg` show errors via statusMessage
+- **#7 Output path**: `transcription:complete` saves outputPath; FileList shows path for completed files
+- **#8 Drag & drop**: `OnFileDrop` from Wails runtime + `AddFiles` Go method; visual drag-over state
+- **#9 Format validation**: `WriteOutput` validates format against allowed set before switch
+
+### Tier 3 — Polish
+- **#10 Retry downloads**: `httpGetWithRetry(ctx, url, 3)` with exponential backoff; used by both model and ffmpeg downloaders
+- **#11 LocalStorage settings**: language and outputFormat persisted/restored via localStorage
+- **#12 Cancel downloads**: `CancelDownload()` method + cancel button in ProgressPanel; download goroutines use cancellable context
+- **#13 Cancel race condition**: `cancelling` state flag prevents premature isRunning reset; Controls disables cancel button
+- **#14 UAC fallback**: `appDataDir()` writes next to .exe, falls back to `%APPDATA%/WhisperTranscriber` if read-only
+
+### New files
+- `http.go` — `httpGetWithRetry` helper
+- `paths.go` — `appDataDir` helper with write-test fallback
+
+### Files changed
+- Go: app.go, ffmpeg.go, model.go, transcriber.go, formatter.go
+- Frontend: App.svelte, FileList.svelte, ProgressPanel.svelte, Controls.svelte
+- Bindings: App.js, App.d.ts (added AddFiles, CancelDownload)
+- Verified: `make build-check` passes, gopls diagnostics clean, no `context.Background` in batch code

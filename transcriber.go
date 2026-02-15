@@ -149,7 +149,16 @@ func readWavSamples(path string) ([]float32, error) {
 		return nil, fmt.Errorf("invalid WAV header: %w", err)
 	}
 
-	var samples []float32
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+	dataSize := fi.Size() - 44 // subtract WAV header
+	if dataSize < 0 {
+		dataSize = 0
+	}
+	n := dataSize / 2 // 2 bytes per int16 sample
+	samples := make([]float32, 0, n)
 	for {
 		var sample int16
 		err := binary.Read(f, binary.LittleEndian, &sample)

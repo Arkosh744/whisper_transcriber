@@ -5,6 +5,7 @@
   export let language: string = 'auto';
   export let outputFormat: string = 'srt';
   export let isRunning: boolean = false;
+  export let cancelling: boolean = false;
   export let hasFiles: boolean = false;
   export let modelReady: boolean = false;
   export let ffmpegReady: boolean = false;
@@ -47,8 +48,8 @@
           Start Transcription
         </button>
       {:else}
-        <button class="danger" on:click={() => dispatch('cancel')}>
-          Cancel
+        <button class="danger" on:click={() => dispatch('cancel')} disabled={cancelling}>
+          {cancelling ? 'Cancelling...' : 'Cancel'}
         </button>
       {/if}
     </div>

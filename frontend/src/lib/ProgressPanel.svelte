@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
+  const dispatch = createEventDispatcher();
+
   export let modelDownloading: boolean = false;
   export let modelProgress: { percent: number; downloaded: string; total: string } | null = null;
   export let ffmpegDownloading: boolean = false;
@@ -14,6 +17,7 @@
         <span>Downloading model...</span>
         <span class="dl-stats">{modelProgress.downloaded} / {modelProgress.total} MB</span>
         <span class="dl-pct">{modelProgress.percent}%</span>
+        <button class="cancel-dl-btn" on:click={() => dispatch('cancel-download')}>Cancel</button>
       </div>
       <div class="progress-bar-wrap">
         <div class="progress-bar" style="width: {modelProgress.percent}%"></div>
@@ -23,6 +27,7 @@
         <span>Downloading FFmpeg...</span>
         <span class="dl-stats">{ffmpegProgress.downloaded} / {ffmpegProgress.total} MB</span>
         <span class="dl-pct">{ffmpegProgress.percent}%</span>
+        <button class="cancel-dl-btn" on:click={() => dispatch('cancel-download')}>Cancel</button>
       </div>
       <div class="progress-bar-wrap">
         <div class="progress-bar" style="width: {ffmpegProgress.percent}%"></div>
@@ -105,5 +110,21 @@
   .status-row {
     font-size: 13px;
     color: var(--text-muted);
+  }
+
+  .cancel-dl-btn {
+    background: none;
+    color: var(--error, #ef4444);
+    font-size: 12px;
+    padding: 2px 8px;
+    border: 1px solid var(--error, #ef4444);
+    border-radius: 4px;
+    cursor: pointer;
+    margin-left: 8px;
+  }
+
+  .cancel-dl-btn:hover {
+    background: var(--error, #ef4444);
+    color: white;
   }
 </style>

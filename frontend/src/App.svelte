@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime';
+  import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from '../wailsjs/runtime/runtime';
   import {
     BrowseFiles,
+    AddFiles,
     ClearFiles,
     RemoveFile,
     GetLanguages,
@@ -12,6 +13,7 @@
     DownloadFFmpeg,
     StartTranscription,
     CancelTranscription,
+    CancelDownload,
   } from '../wailsjs/go/main/App';
   import FileList from './lib/FileList.svelte';
   import Controls from './lib/Controls.svelte';
@@ -25,6 +27,7 @@
   let modelReady = false;
   let ffmpegReady = false;
   let isRunning = false;
+  let cancelling = false;
 
   // Progress panel state
   let modelDownloading = false;
@@ -33,6 +36,9 @@
   let ffmpegProgress: { percent: number; downloaded: string; total: string } | null = null;
   let modelLoading = false;
   let statusMessage = '';
+
+  $: if (typeof window !== 'undefined') localStorage.setItem('wt:language', language);
+  $: if (typeof window !== 'undefined') localStorage.setItem('wt:outputFormat', outputFormat);
 
   // Cleanup handles
   let cleanups: (() => void)[] = [];
@@ -43,6 +49,12 @@
   }
 
   onMount(async () => {
+    // Restore saved settings
+    const savedLang = localStorage.getItem('wt:language');
+    if (savedLang) language = savedLang;
+    const savedFormat = localStorage.getItem('wt:outputFormat');
+    if (savedFormat) outputFormat = savedFormat;
+
     // Load initial data
     languages = await GetLanguages();
     modelReady = await IsModelAvailable();
@@ -67,7 +79,8 @@
     // Batch complete
     on('batch:complete', () => {
       isRunning = false;
-      statusMessage = 'Batch complete!';
+      statusMessage = cancelling ? 'Cancelled' : 'Batch complete!';
+      cancelling = false;
       setTimeout(() => { statusMessage = ''; }, 3000);
     });
 
@@ -120,12 +133,26 @@
     });
 
     on('transcription:complete', (data: any) => {
-      // File transcribed successfully
+      files = files.map(f =>
+        f.id === data.fileID ? { ...f, outputPath: data.outputPath } : f
+      );
     });
+
+    OnFileDrop(async (_x: number, _y: number, paths: string[]) => {
+      try {
+        const items = await AddFiles(paths);
+        if (items && items.length > 0) {
+          files = [...files, ...items];
+        }
+      } catch (e: any) {
+        statusMessage = 'Error: ' + (e?.message || e);
+      }
+    }, true);
   });
 
   onDestroy(() => {
     cleanups.forEach(fn => fn());
+    OnFileDropOff();
   });
 
   // Handlers
@@ -136,7 +163,7 @@
         files = [...files, ...items];
       }
     } catch (e) {
-      console.error('Browse error:', e);
+      statusMessage = 'Error: ' + e;
     }
   }
 
@@ -164,19 +191,36 @@
 
   function handleCancel() {
     CancelTranscription();
-    isRunning = false;
-    statusMessage = 'Cancelled';
+    cancelling = true;
+    statusMessage = 'Cancelling...';
+  }
+
+  function handleCancelDownload() {
+    CancelDownload();
+    modelDownloading = false;
+    ffmpegDownloading = false;
+    modelProgress = null;
+    ffmpegProgress = null;
+    statusMessage = 'Download cancelled';
     setTimeout(() => { statusMessage = ''; }, 2000);
   }
 
   function handleDownloadModel() {
-    DownloadModel();
-    modelDownloading = true;
+    try {
+      DownloadModel();
+      modelDownloading = true;
+    } catch (e: any) {
+      statusMessage = 'Error: ' + (e?.message || e);
+    }
   }
 
   function handleDownloadFFmpeg() {
-    DownloadFFmpeg();
-    ffmpegDownloading = true;
+    try {
+      DownloadFFmpeg();
+      ffmpegDownloading = true;
+    } catch (e: any) {
+      statusMessage = 'Error: ' + (e?.message || e);
+    }
   }
 </script>
 
@@ -191,6 +235,7 @@
   {ffmpegProgress}
   {modelLoading}
   {statusMessage}
+  on:cancel-download={handleCancelDownload}
 />
 
 <Controls
@@ -198,6 +243,7 @@
   bind:language
   bind:outputFormat
   {isRunning}
+  {cancelling}
   hasFiles={files.length > 0}
   {modelReady}
   {ffmpegReady}
