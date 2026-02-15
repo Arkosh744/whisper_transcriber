@@ -2,10 +2,11 @@
 
 ## In Progress
 
-- [ ] [80%] Vulkan GPU build — cross-compile whisper.cpp with Vulkan for Windows
 - [ ] [0%] FFmpeg bundling — download static ffmpeg.exe for Windows
 
 ## Completed
+
+- [x] [100%] Vulkan GPU build — 55 MB PE32+ with SPIR-V shaders (2026-02-15)
 
 - [x] [100%] Go backend code — types, model, ffmpeg, transcriber, formatter, app, main (2026-02-14)
 - [x] [100%] Svelte frontend — App, FileList, Controls, ProgressPanel, style (2026-02-14)

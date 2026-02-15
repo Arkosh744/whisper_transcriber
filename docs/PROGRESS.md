@@ -1,6 +1,6 @@
 # Progress — Go Rewrite
 
-## Overall: 85%
+## Overall: 95%
 
 | Phase | Status | Notes |
 |-------|--------|-------|
@@ -10,6 +10,6 @@
 | whisper.cpp Windows | Done | CPU-only, mingw cross |
 | Windows .exe (CPU) | Done | 12 MB PE32+ |
 | Makefile | Done | 12 targets |
-| Vulkan GPU | In progress | need glslc for shaders |
-| FFmpeg bundling | Pending | |
+| Vulkan GPU | Done | 55 MB PE32+ with SPIR-V shaders |
+| FFmpeg bundling | Pending | Makefile target ready |
 | Testing | Pending | |

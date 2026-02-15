@@ -27,8 +27,13 @@
 - Wails CLI doesn't pass CC to Go — switched to direct `go build` with `-tags desktop,production -ldflags "-w -s -H windowsgui"`
 - **Result: 12 MB .exe** — PE32+ GUI x86-64 for MS Windows
 
-## [2026-02-15 13:00:00] Phase 3 — Vulkan GPU (in progress)
+## [2026-02-15 13:00:00] Phase 3 — Vulkan GPU
 
-- Generated Windows Vulkan import library (623 functions, 513K)
-- Waiting for glslc installation for shader compilation
-- Updated .gitignore, created docs
+- Generated Windows Vulkan import library (623 functions, 513K) via dlltool
+- Installed glslc (shaderc 2023.8) for SPIR-V shader compilation
+- Isolated Vulkan headers to avoid /usr/include poisoning mingw cross-compiler
+- Built whisper.cpp with Vulkan: 100+ GLSL shaders compiled to SPIR-V
+- Fixed link order: `-lggml-vulkan -lstdc++` needed in CGO_LDFLAGS (Go duplicates flags)
+- Created symlink chain: ggml-vulkan/ggml-vulkan.a → libggml-vulkan.a in ggml/src/
+- Updated Makefile: whisper-lib-win-vulkan + build-win-vulkan targets with correct paths
+- **Result: 55 MB .exe** — PE32+ GUI x86-64 with Vulkan GPU support

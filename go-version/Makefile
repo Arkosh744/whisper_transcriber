@@ -70,6 +70,8 @@ whisper-lib-win: $(WHISPER_DIR)/CMakeLists.txt
 		echo "whisper.cpp (Windows, CPU) already built"; \
 	fi
 
+VULKAN_WIN := $(CURDIR)/third_party/vulkan-win64
+
 whisper-lib-win-vulkan: $(WHISPER_DIR)/CMakeLists.txt
 	@if [ ! -f $(WHISPER_VULKAN)/src/libwhisper.a ]; then \
 		echo "Building whisper.cpp (Windows, Vulkan)..."; \
@@ -80,10 +82,15 @@ whisper-lib-win-vulkan: $(WHISPER_DIR)/CMakeLists.txt
 			-DCMAKE_C_FLAGS="-D_WIN32_WINNT=0x0601 -DNDEBUG" \
 			-DCMAKE_CXX_FLAGS="-D_WIN32_WINNT=0x0601 -DNDEBUG" \
 			-DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
-			-DGGML_VULKAN=ON -DGGML_OPENMP=OFF -DGGML_BLAS=OFF \
+			-DGGML_VULKAN=ON -DGGML_OPENMP=OFF -DGGML_BLAS=OFF -DGGML_CUDA=OFF \
+			-DVulkan_LIBRARY=$(VULKAN_WIN)/libvulkan-1.a \
+			-DVulkan_INCLUDE_DIR=$(VULKAN_WIN)/include \
+			-DVulkan_GLSLC_EXECUTABLE=$$(which glslc) \
 			-DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF && \
 		cmake --build . -j$$(nproc) && \
-		cd ggml/src && for f in ggml*.a; do [ ! -f "lib$$f" ] && ln -s "$$f" "lib$$f" || true; done; \
+		cd ggml/src && \
+		for f in ggml*.a; do [ ! -f "lib$$f" ] && ln -s "$$f" "lib$$f" || true; done && \
+		ln -sf ggml-vulkan/ggml-vulkan.a libggml-vulkan.a; \
 	else \
 		echo "whisper.cpp (Windows, Vulkan) already built"; \
 	fi
@@ -116,7 +123,7 @@ build-win-vulkan: whisper-lib-win-vulkan bindings frontend
 	@echo "Cross-compiling Windows .exe (Vulkan GPU)..."
 	@mkdir -p build/bin
 	CGO_CFLAGS="-I$(WHISPER_DIR)/include -I$(WHISPER_DIR)/ggml/include" \
-	CGO_LDFLAGS="-L$(WHISPER_VULKAN)/src -L$(WHISPER_VULKAN)/ggml/src -lvulkan-1" \
+	CGO_LDFLAGS="-L$(WHISPER_VULKAN)/src -L$(WHISPER_VULKAN)/ggml/src -L$(VULKAN_WIN) -lggml-vulkan -lvulkan-1 -lstdc++" \
 	GOOS=windows GOARCH=amd64 \
 	CC=$(WIN_CC) CXX=$(WIN_CXX) CGO_ENABLED=1 \
 		go build -tags desktop,production -ldflags "-w -s -H windowsgui" \
@@ -125,7 +132,7 @@ build-win-vulkan: whisper-lib-win-vulkan bindings frontend
 
 frontend:
 	@cd frontend && npm install --silent && npm run build
-	@echo "Built: build/bin/whisper_transcriber.exe (Vulkan)"
+	@echo "Frontend built"
 
 # --- Assets ---
 
