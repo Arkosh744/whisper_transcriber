@@ -1,17 +1,13 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-dist/
-build/
-*.egg
+# Build
+build/bin/
+frontend/dist/
+frontend/node_modules/
 
-# Virtual environment
-venv/
-.venv/
-env/
+# whisper.cpp (cloned + built at build time)
+third_party/
+
+# Models (downloaded at runtime)
+models/
 
 # IDE
 .idea/
@@ -19,16 +15,6 @@ env/
 *.swp
 *.swo
 
-# PyInstaller
-*.manifest
-*.spec.bak
-
-# Model files (too large for git)
-models/
-
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log

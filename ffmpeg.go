@@ -19,14 +19,11 @@ const (
 	ffmpegWinURL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 )
 
-// ffmpegBin returns the path to ffmpeg, checking bundled location first.
 func ffmpegBin() (string, error) {
-	// 1. Check next to executable
 	bundled := ffmpegLocalPath()
 	if _, err := os.Stat(bundled); err == nil {
 		return bundled, nil
 	}
-	// 2. Fall back to system PATH
 	p, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		return "", fmt.Errorf("ffmpeg not found: download it via the app or install system-wide")
@@ -34,7 +31,6 @@ func ffmpegBin() (string, error) {
 	return p, nil
 }
 
-// ffmpegLocalPath returns the expected path for bundled ffmpeg next to the executable.
 func ffmpegLocalPath() string {
 	exePath, _ := os.Executable()
 	name := "ffmpeg"
@@ -44,14 +40,11 @@ func ffmpegLocalPath() string {
 	return filepath.Join(filepath.Dir(exePath), name)
 }
 
-// IsFFmpegAvailable checks if ffmpeg is reachable (bundled or in PATH).
 func IsFFmpegAvailable() bool {
 	_, err := ffmpegBin()
 	return err == nil
 }
 
-// DownloadFFmpeg downloads a static ffmpeg build for Windows.
-// Emits ffmpeg:download:progress and ffmpeg:download:done/error events.
 func DownloadFFmpeg(ctx context.Context) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("auto-download only supported on Windows; install ffmpeg via package manager")
@@ -71,7 +64,6 @@ func DownloadFFmpeg(ctx context.Context) error {
 
 	total := resp.ContentLength
 
-	// Download zip to temp file
 	tmpZip := dest + ".zip.tmp"
 	defer os.Remove(tmpZip)
 
@@ -111,7 +103,6 @@ func DownloadFFmpeg(ctx context.Context) error {
 	}
 	out.Close()
 
-	// Extract ffmpeg.exe from zip
 	if err := extractFFmpegFromZip(tmpZip, dest); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
@@ -119,9 +110,6 @@ func DownloadFFmpeg(ctx context.Context) error {
 	return nil
 }
 
-// ExtractAudio converts any audio/video file to 16kHz mono WAV suitable for whisper.cpp.
-// whisper.cpp only accepts raw PCM WAV, so we always run ffmpeg regardless of input format.
-// Returns the path to the temporary WAV file. Caller must os.Remove() it when done.
 func ExtractAudio(inputPath string) (string, error) {
 	ff, err := ffmpegBin()
 	if err != nil {
@@ -137,10 +125,10 @@ func ExtractAudio(inputPath string) (string, error) {
 
 	cmd := exec.Command(ff,
 		"-i", inputPath,
-		"-ar", "16000",      // 16 kHz sample rate (whisper requirement)
-		"-ac", "1",           // mono
-		"-c:a", "pcm_s16le", // 16-bit PCM
-		"-y",                 // overwrite
+		"-ar", "16000",
+		"-ac", "1",
+		"-c:a", "pcm_s16le",
+		"-y",
 		outPath,
 	)
 	output, err := cmd.CombinedOutput()
@@ -151,7 +139,6 @@ func ExtractAudio(inputPath string) (string, error) {
 	return outPath, nil
 }
 
-// extractFFmpegFromZip finds and extracts bin/ffmpeg.exe from a zip archive.
 func extractFFmpegFromZip(zipPath, destPath string) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {

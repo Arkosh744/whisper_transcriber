@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// WriteOutput writes transcription results to a file next to the source.
-// Returns the output file path.
 func WriteOutput(result *TranscriptionResult, sourcePath string, format string) (string, error) {
 	ext := "." + format
 	base := strings.TrimSuffix(sourcePath, filepath.Ext(sourcePath))

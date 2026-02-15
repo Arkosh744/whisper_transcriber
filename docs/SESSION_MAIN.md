@@ -45,3 +45,25 @@
 - Updated Makefile: ffmpeg-win uses python3 zipfile (unzip not available in WSL2)
 - Added `-extldflags '-static'` to both CPU and Vulkan build targets
 - DLL dependencies verified: only vulkan-1.dll + Windows system DLLs
+
+## [2026-02-15 14:30:00] FFmpeg on-demand download (replace bundling)
+
+- Changed approach: instead of bundling 200 MB ffmpeg.exe, download on demand via UI button
+- ffmpeg.go: added `IsFFmpegAvailable()`, `DownloadFFmpeg(ctx)`, `extractFFmpegFromZip()`
+- app.go: added bound methods `IsFFmpegAvailable()`, `DownloadFFmpeg()`
+- Controls.svelte: added `ffmpegReady` prop, FFmpeg notice with download button
+- ProgressPanel.svelte: added FFmpeg download progress bar with stats
+- App.svelte: added state management, event listeners for ffmpeg:download:* events
+- Regenerated Wails bindings: added `IsFFmpegAvailable`, `DownloadFFmpeg`
+- Committed: `1257279 add on-demand FFmpeg download instead of bundling`
+
+## [2026-02-15 16:00:00] Go→root migration, cleanup
+
+- Removed all comments from 6 Go files (~60 comment lines), preserved `//go:embed` in main.go
+- Deleted Python files: main.py, app.py, config.py, requirements.txt, build.spec, core/, workers/, ui/, Makefile
+- Moved Go code from go-version/ to root via `git mv` (git tracks as renames)
+- Renamed module: `go-version` → `whisper-transcriber` in go.mod
+- Updated wails.json: name + outputfilename → `whisper-transcriber`
+- Replaced .gitignore: Python → Go/Wails oriented
+- Rewrote README.md: Go/Wails/Vulkan instead of Python/CustomTkinter/CUDA
+- Cleaned up: venv/, __pycache__/, go-version/ directory

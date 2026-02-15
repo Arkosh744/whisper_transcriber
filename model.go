@@ -16,14 +16,11 @@ const (
 	modelURL      = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin"
 )
 
-// ModelManager handles model discovery and download.
 type ModelManager struct {
 	ctx      context.Context
 	modelDir string
 }
 
-// NewModelManager creates a ModelManager.
-// Model is stored next to the executable in models/ directory.
 func NewModelManager() *ModelManager {
 	exePath, _ := os.Executable()
 	return &ModelManager{
@@ -35,25 +32,22 @@ func (m *ModelManager) SetContext(ctx context.Context) {
 	m.ctx = ctx
 }
 
-// ModelPath returns the full path to the model file.
 func (m *ModelManager) ModelPath() string {
 	return filepath.Join(m.modelDir, modelFileName)
 }
 
-// IsModelAvailable checks if the model file exists locally.
 func (m *ModelManager) IsModelAvailable() bool {
 	info, err := os.Stat(m.ModelPath())
 	return err == nil && info.Size() > 0
 }
 
-// DownloadModel downloads the GGML model from HuggingFace with progress events.
 func (m *ModelManager) DownloadModel() error {
 	if err := os.MkdirAll(m.modelDir, 0755); err != nil {
 		return fmt.Errorf("cannot create models dir: %w", err)
 	}
 
 	tmpPath := m.ModelPath() + ".tmp"
-	defer os.Remove(tmpPath) // cleanup on error
+	defer os.Remove(tmpPath)
 
 	resp, err := http.Get(modelURL)
 	if err != nil {
@@ -73,7 +67,7 @@ func (m *ModelManager) DownloadModel() error {
 	defer out.Close()
 
 	var downloaded int64
-	buf := make([]byte, 64*1024) // 64 KB chunks
+	buf := make([]byte, 64*1024)
 
 	for {
 		n, readErr := resp.Body.Read(buf)

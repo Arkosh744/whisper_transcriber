@@ -11,5 +11,5 @@
 | Windows .exe (CPU) | Done | 12 MB PE32+ |
 | Makefile | Done | 12 targets |
 | Vulkan GPU | Done | 56 MB PE32+, static libstdc++ |
-| FFmpeg bundling | Done | 200 MB static ffmpeg.exe |
+| FFmpeg on-demand | Done | Download button in UI, auto-extract to app dir |
 | Testing | Pending | GUI tested on Win11, no unit tests yet |

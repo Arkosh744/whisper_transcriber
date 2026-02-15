@@ -1,205 +1,140 @@
-# План: завершение Go rewrite — сборка + кросс-компиляция Windows .exe
+# План: удалить комменты из Go, заменить Python на Go, переписать README
 
 ## Context
 
-Весь код (Go backend + Svelte frontend) написан на 100%. Не хватает:
-- whisper.cpp static library (не собрана)
-- Makefile (не создан)
-- Wails bindings (устаревшие — содержат `Greet()` вместо реальных методов)
-- Тестирование
+Go rewrite завершён на 100% и живёт в `go-version/`. Python-версия осталась в корне. Нужно:
+1. Убрать все комментарии из Go-кода (doc-comments, inline, section separators)
+2. Переместить Go-код из `go-version/` в корень, удалить Python-файлы
+3. Переписать README под Go/Wails вместо Python/CustomTkinter
 
-Среда: WSL2 Linux, целевая платформа: Windows 11 x64. CUDA нужна.
+## Task 1: Удалить комменты из Go-кода
 
-## Оценка готовности
+7 файлов, ~40 doc-comment строк + ~20 inline.
 
-| Компонент | Статус | Файлы |
-|-----------|--------|-------|
-| types.go | 100% | go-version/types.go |
-| model.go | 100% | go-version/model.go |
-| ffmpeg.go | 100% | go-version/ffmpeg.go |
-| transcriber.go | 100% | go-version/transcriber.go |
-| formatter.go | 100% | go-version/formatter.go |
-| app.go | 100% | go-version/app.go |
-| main.go | 100% | go-version/main.go |
-| Frontend (4 компонента) | 100% | go-version/frontend/src/ |
-| whisper.cpp lib | 0% | — |
-| Makefile | 0% | — |
-| Wails bindings | устаревшие | go-version/frontend/wailsjs/ |
+**Сохранить**: `//go:embed all:frontend/dist` в main.go (компилятор-директива, не комментарий)
 
-## План реализации
+| Файл | Что убрать |
+|------|-----------|
+| `types.go` | `// FileItem represents...`, `// pending \| processing...`, `// 0-100`, `// "auto"...`, `// seconds`, все doc-comments на типах |
+| `model.go` | `// ModelManager handles...`, `// NewModelManager creates...`, `// Model is stored...`, `// ModelPath returns...`, `// IsModelAvailable...`, `// DownloadModel...`, `// 64 KB chunks`, `// cleanup on error` |
+| `ffmpeg.go` | `// ffmpegBin returns...`, `// 1. Check next to executable`, `// 2. Fall back to system PATH`, `// ffmpegLocalPath...`, `// IsFFmpegAvailable...`, `// DownloadFFmpeg...`, `// Emits ffmpeg:download...`, `// ExtractAudio converts...`, `// whisper.cpp only accepts...`, `// Returns the path...`, `// Download zip to temp file`, `// Extract ffmpeg.exe from zip`, `// 16 kHz sample rate...`, `// mono`, `// 16-bit PCM`, `// overwrite`, `// extractFFmpegFromZip...` |
+| `transcriber.go` | `// Transcriber wraps...`, `// NewTranscriber...`, `// SetContext...`, `// LoadModel...`, `// IsLoaded...`, `// TranscribeFile processes...`, `// Emits "transcription:progress"...`, `// Read WAV samples...`, `// Create whisper context`, `// Configure language`, `// fallback to auto...`, `// Use EncoderBeginCallback...`, `// ProgressCallback for...`, `nil, // segment callback...`, `// Collect segments via NextSegment`, `// Close releases...`, `// readWavSamples reads...`, `// normalized to...`, `// safe because...`, `// Skip WAV header...`, `// Read 16-bit samples` |
+| `formatter.go` | `// WriteOutput writes...`, `// Returns the output...` |
+| `app.go` | Все doc-comments на структурах и методах, `// --- Bound methods ---`, `// Ensure model`, `// Load model if not already loaded`, `// Create cancellable context for the batch`, `// Step 1:...`, `// Step 2:...`, `// Step 3:...`, `// Cleanup temp WAV`, `// File transcribed successfully` |
+| `main.go` | Ничего — только `//go:embed` (сохранить) |
 
-### Phase 1: Инфраструктура сборки (CPU-only, Linux)
+## Task 2: Переместить Go в корень, удалить Python
 
-Цель: проверить что код компилируется.
+### 2.1 Удалить Python-файлы (git rm)
 
-**1.1** Установить webkit2gtk (нужен для `wails generate`):
-```bash
-sudo apt install libwebkit2gtk-4.0-dev
+```
+main.py
+app.py
+config.py
+requirements.txt
+build.spec
+core/           (transcriber.py, model_downloader.py, formatters.py, media_info.py, __init__.py)
+workers/        (transcribe_worker.py, __init__.py)
+ui/             (file_list.py, controls.py, progress.py, __init__.py)
+Makefile        (Python Makefile — заменится Go Makefile)
 ```
 
-**1.2** Склонировать whisper.cpp в `go-version/third_party/whisper.cpp`:
-```bash
-git clone https://github.com/ggml-org/whisper.cpp.git third_party/whisper.cpp
-cd third_party/whisper.cpp && git checkout 764482c3175d
-```
-> Коммит `764482c3175d` — тот же что в go.mod для совместимости bindings.
+Также удалить с диска (не в git): `venv/`, `__pycache__/`
 
-**1.3** Собрать whisper.cpp (Linux, CPU-only):
-```bash
-mkdir build && cd build
-cmake .. -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
-  -DGGML_CUDA=OFF -DGGML_VULKAN=OFF
-cmake --build . -j$(nproc)
-```
-
-**1.4** Проверить компиляцию Go с CGo:
-```bash
-export CGO_CFLAGS="-I./third_party/whisper.cpp/include -I./third_party/whisper.cpp/ggml/include"
-export CGO_LDFLAGS="-L./third_party/whisper.cpp/build/src -L./third_party/whisper.cpp/build/ggml/src -lwhisper -lggml -lggml-base -lggml-cpu -lm -lpthread -lstdc++"
-go build ./...
-```
-> Пути к `.a` файлам могут отличаться — проверить `find build -name "*.a"`.
-
-**1.5** Регенерировать Wails bindings:
-```bash
-wails generate module
-```
-
-### Phase 2: Кросс-компиляция Windows .exe (CPU-only)
-
-Цель: получить работающий .exe без GPU.
-
-**2.1** Установить mingw-w64:
-```bash
-sudo apt install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-```
-
-**2.2** Пересобрать whisper.cpp для Windows:
-```bash
-cd third_party/whisper.cpp
-mkdir build-win && cd build-win
-cmake .. -DCMAKE_SYSTEM_NAME=Windows \
-  -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-  -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
-  -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
-  -DGGML_CUDA=OFF -DGGML_VULKAN=OFF
-cmake --build . -j$(nproc)
-```
-
-**2.3** Кросс-компилировать Wails app:
-```bash
-export CGO_CFLAGS="-I./third_party/whisper.cpp/include -I./third_party/whisper.cpp/ggml/include"
-export CGO_LDFLAGS="-L./third_party/whisper.cpp/build-win/src -L./third_party/whisper.cpp/build-win/ggml/src -lwhisper -lggml -lggml-base -lggml-cpu -lm -lpthread -lstdc++ -static"
-GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_ENABLED=1 \
-  wails build -platform windows/amd64
-```
-
-**2.4** Проверить .exe на Windows — запустить из проводника.
-
-### Phase 3: GPU через Vulkan
-
-Vulkan — лучший выбор для кросс-компиляции: работает на NVIDIA и AMD, не требует проприетарного SDK.
-
-**3.1** Скачать Vulkan SDK headers + loader для кросс-компиляции:
-```bash
-# Vulkan headers (platform-independent)
-sudo apt install libvulkan-dev vulkan-headers
-# Для Windows: vulkan-1.dll идёт с GPU драйвером (NVIDIA/AMD)
-```
-
-**3.2** Пересобрать whisper.cpp для Windows с Vulkan:
-```bash
-cd third_party/whisper.cpp
-mkdir build-win-vulkan && cd build-win-vulkan
-cmake .. -DCMAKE_SYSTEM_NAME=Windows \
-  -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-  -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
-  -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release \
-  -DGGML_VULKAN=ON
-cmake --build . -j$(nproc)
-```
-
-**3.3** Обновить CGo flags и пересобрать .exe:
-```bash
-# Добавить -lvulkan-1 к CGO_LDFLAGS
-wails build -platform windows/amd64
-```
-
-> Windows 10/11 с NVIDIA/AMD/Intel GPU уже имеет `vulkan-1.dll` в системе.
-> Никаких доп. DLL бандлить не нужно — Vulkan runtime поставляется с драйверами.
-
-### Phase 4: Makefile
-
-Создать `go-version/Makefile` с targets:
-- `whisper-lib` — сборка whisper.cpp (Linux)
-- `whisper-lib-win` — сборка whisper.cpp (Windows cross, CPU)
-- `whisper-lib-win-vulkan` — сборка whisper.cpp (Windows cross, Vulkan GPU)
-- `bindings` — регенерация Wails JS bindings
-- `build-check` — проверка компиляции (Linux)
-- `build-win` — кросс-компиляция Windows .exe
-- `model` — скачивание GGML модели
-- `clean` — очистка артефактов
-
-### Phase 5: .gitignore + финализация
-
-- Добавить в `.gitignore`: `third_party/`, `models/`, `build/`
-- Обновить `docs/TASKS.md`, `docs/SESSION_MAIN.md`
-
-### Коммиты (бекап-точки)
-
-После каждой значимой фазы — коммит с реалистичным timestamp (чуть в прошлом, ~30-90 мин интервалы). Без co-authored-by.
+### 2.2 Переместить go-version/* в корень
 
 ```bash
-GIT_AUTHOR_DATE="2026-02-15T10:30:00+03:00" GIT_COMMITTER_DATE="2026-02-15T10:30:00+03:00" \
-  git commit -m "message"
+# Файлы Go
+git mv go-version/app.go go-version/ffmpeg.go go-version/formatter.go \
+       go-version/model.go go-version/transcriber.go go-version/types.go \
+       go-version/main.go go-version/go.mod go-version/go.sum \
+       go-version/wails.json go-version/Makefile .
+
+# Директории
+git mv go-version/frontend .
+git mv go-version/build .
 ```
 
-Примерные коммиты:
-1. После Phase 1 (Linux build): `"build whisper.cpp static lib, verify Go compilation"`
-2. После Phase 4 (Makefile): `"add Makefile for build automation"`
-3. После Phase 2 (Windows .exe): `"add Windows cross-compilation via mingw"`
-4. После Phase 3 (Vulkan): `"enable Vulkan GPU backend for whisper.cpp"`
-5. После Phase 5 (cleanup): `"add .gitignore, update docs"`
+Файлы не в git (скопировать вручную + удалить go-version/):
+- `go-version/third_party/` → `third_party/`
+
+### 2.3 Обновить пути и имена
+
+**go.mod**: `module go-version` → `module whisper-transcriber`
+
+**wails.json**: `"name": "go-version"` → `"name": "whisper-transcriber"`, `"outputfilename": "go-version"` → `"outputfilename": "whisper-transcriber"`
+
+**Makefile**: путей обновлять не нужно — используют `$(CURDIR)` (автоматически корень)
+
+### 2.4 Обновить .gitignore
+
+Заменить Python-ориентированный .gitignore на Go:
+
+```gitignore
+# Build
+build/bin/
+frontend/dist/
+frontend/node_modules/
+
+# whisper.cpp (cloned + built at build time)
+third_party/
+
+# Models (downloaded at runtime)
+models/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+```
+
+## Task 3: Переписать README
+
+Новый README.md:
+- Заголовок: Whisper Transcriber
+- Описание: Desktop GUI + whisper.cpp (Go/Wails v2), Vulkan GPU
+- Бейджи: Go, Wails, Vulkan, License
+- Features: Vulkan GPU (~10-50x realtime), 12-56 MB .exe, on-demand model/FFmpeg download, batch processing, 16 languages, 4 formats, dark theme
+- ASCII screenshot (как был, но обновить)
+- Quick Start: `make whisper-lib-win && make build-win`
+- Requirements: Go 1.23+, Wails CLI, mingw-w64 (для кросс-компиляции)
+- Project Structure: корневой layout с Go-файлами
+- How It Works: Video → FFmpeg → WAV → whisper.cpp → segments → formatter → file
+- Makefile targets (из текущего Makefile)
+- License: MIT
 
 ## Критические файлы
 
 | Файл | Действие |
 |------|----------|
-| `go-version/Makefile` | создать |
-| `go-version/.gitignore` | обновить (third_party/, models/) |
-| `go-version/frontend/wailsjs/go/main/App.js` | авто-регенерация через `wails generate` |
-| `go-version/frontend/wailsjs/go/main/App.d.ts` | авто-регенерация |
-| `docs/TASKS.md` | создать |
-| `docs/SESSION_MAIN.md` | создать |
+| `go-version/*.go` (7 шт.) | убрать комменты, переместить в корень |
+| `go-version/go.mod` | переименовать module, переместить |
+| `go-version/wails.json` | обновить name, переместить |
+| `.gitignore` | заменить Python → Go |
+| `README.md` | полностью переписать |
+| `main.py, app.py, config.py, ...` | удалить |
+| `core/, workers/, ui/` | удалить |
+
+## Порядок выполнения
+
+1. Убрать комменты из Go-файлов (пока они ещё в `go-version/`)
+2. `git rm` Python-файлов
+3. `git mv` Go-файлов в корень
+4. Обновить go.mod, wails.json, .gitignore
+5. Написать новый README.md
+6. Удалить пустой `go-version/`
+7. `rm -rf venv/ __pycache__/`
 
 ## Верификация
 
-1. `make whisper-lib` — whisper.cpp собирается без ошибок
-2. `make build-check` — Go код компилируется с CGo
-3. `make bindings` — Wails bindings содержат BrowseFiles, StartTranscription и т.д.
-4. `make build-win` — создаётся .exe файл
-5. Запустить .exe на Windows — окно открывается, UI работает
-6. Browse files + Start Transcription (нужна модель + ffmpeg)
-
-## Решения
-
-- **GPU**: Vulkan — кросс-компилируется из WSL2, работает на NVIDIA/AMD/Intel, не требует доп. DLL
-- **FFmpeg**: бандлить `ffmpeg.exe` (~90 МБ static build) рядом с .exe
-
-### FFmpeg bundling
-
-Добавить в Makefile target `ffmpeg-win`:
-```bash
-# Скачать static build для Windows
-curl -L -o ffmpeg.zip https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
-unzip ffmpeg.zip -d /tmp/ffmpeg
-cp /tmp/ffmpeg/*/bin/ffmpeg.exe build/bin/
-```
-
-## Порядок работы
-
-1. Phase 1 (Linux build) → быстрая проверка компиляции
-2. Phase 4 (Makefile) → автоматизация
-3. Phase 2 (Windows cross) → рабочий .exe
-4. Phase 5 (cleanup) → коммит
-5. Phase 3 (Vulkan GPU) + FFmpeg bundling → GPU-accelerated .exe
+1. `go build ./...` — компиляция из корня (с CGo flags)
+2. Проверить что `//go:embed` сохранён в main.go
+3. `grep -r "^//" *.go` — убедиться что остался только `//go:embed`
+4. `ls *.py` — Python-файлов нет
+5. `cat go.mod` — module whisper-transcriber
+6. `cat README.md` — Go-ориентированный README

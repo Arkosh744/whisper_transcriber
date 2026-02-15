@@ -10,7 +10,6 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// App is the main application struct bound to the Wails frontend.
 type App struct {
 	ctx          context.Context
 	transcriber  *Transcriber
@@ -20,7 +19,6 @@ type App struct {
 	batchCancel  context.CancelFunc
 }
 
-// NewApp creates a new App.
 func NewApp() *App {
 	return &App{
 		transcriber:  NewTranscriber(),
@@ -28,21 +26,16 @@ func NewApp() *App {
 	}
 }
 
-// startup is called when the Wails app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.transcriber.SetContext(ctx)
 	a.modelManager.SetContext(ctx)
 }
 
-// shutdown is called when the app closes.
 func (a *App) shutdown(ctx context.Context) {
 	a.transcriber.Close()
 }
 
-// --- Bound methods (called from JS) ---
-
-// BrowseFiles opens a native file dialog and returns selected files.
 func (a *App) BrowseFiles() ([]FileItem, error) {
 	selection, err := wailsRuntime.OpenMultipleFilesDialog(a.ctx, wailsRuntime.OpenDialogOptions{
 		Title: "Select Video Files",
@@ -78,14 +71,12 @@ func (a *App) BrowseFiles() ([]FileItem, error) {
 	return items, nil
 }
 
-// ClearFiles removes all files from the queue.
 func (a *App) ClearFiles() {
 	a.mu.Lock()
 	a.files = nil
 	a.mu.Unlock()
 }
 
-// RemoveFile removes a file from the queue by ID.
 func (a *App) RemoveFile(id string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -97,7 +88,6 @@ func (a *App) RemoveFile(id string) {
 	}
 }
 
-// GetLanguages returns the list of available languages.
 func (a *App) GetLanguages() []LangOption {
 	return []LangOption{
 		{Code: "auto", Name: "Auto-detect"},
@@ -119,12 +109,10 @@ func (a *App) GetLanguages() []LangOption {
 	}
 }
 
-// IsFFmpegAvailable checks if ffmpeg is reachable (bundled or in PATH).
 func (a *App) IsFFmpegAvailable() bool {
 	return IsFFmpegAvailable()
 }
 
-// DownloadFFmpeg downloads a static ffmpeg build. Runs in a goroutine.
 func (a *App) DownloadFFmpeg() {
 	go func() {
 		if err := DownloadFFmpeg(a.ctx); err != nil {
@@ -135,12 +123,10 @@ func (a *App) DownloadFFmpeg() {
 	}()
 }
 
-// IsModelAvailable checks if the GGML model exists locally.
 func (a *App) IsModelAvailable() bool {
 	return a.modelManager.IsModelAvailable()
 }
 
-// DownloadModel downloads the GGML model. Runs in a goroutine.
 func (a *App) DownloadModel() {
 	go func() {
 		if err := a.modelManager.DownloadModel(); err != nil {
@@ -151,14 +137,11 @@ func (a *App) DownloadModel() {
 	}()
 }
 
-// StartTranscription begins batch processing all pending files.
 func (a *App) StartTranscription(config TranscriptionConfig) error {
-	// Ensure model
 	if !a.modelManager.IsModelAvailable() {
 		return fmt.Errorf("model not found — download it first")
 	}
 
-	// Load model if not already loaded
 	if !a.transcriber.IsLoaded() {
 		wailsRuntime.EventsEmit(a.ctx, "model:loading", nil)
 		if err := a.transcriber.LoadModel(a.modelManager.ModelPath()); err != nil {
@@ -167,7 +150,6 @@ func (a *App) StartTranscription(config TranscriptionConfig) error {
 		wailsRuntime.EventsEmit(a.ctx, "model:loaded", nil)
 	}
 
-	// Create cancellable context for the batch
 	batchCtx, cancel := context.WithCancel(context.Background())
 	a.batchCancel = cancel
 
@@ -175,7 +157,6 @@ func (a *App) StartTranscription(config TranscriptionConfig) error {
 	return nil
 }
 
-// CancelTranscription stops the current batch.
 func (a *App) CancelTranscription() {
 	if a.batchCancel != nil {
 		a.batchCancel()
@@ -199,8 +180,6 @@ func (a *App) runBatch(ctx context.Context, config TranscriptionConfig) {
 
 		a.emitStatus(fileItem.ID, "processing", 0, "")
 
-		// Step 1: Convert any audio/video to 16kHz mono WAV via FFmpeg
-		// whisper.cpp only accepts raw PCM WAV, so we always convert
 		wavPath, err := ExtractAudio(fileItem.Path)
 		if err != nil {
 			a.emitStatus(fileItem.ID, "error", 0, err.Error())
@@ -208,10 +187,8 @@ func (a *App) runBatch(ctx context.Context, config TranscriptionConfig) {
 		}
 		audioPath := wavPath
 
-		// Step 2: Transcribe
 		result, err := a.transcriber.TranscribeFile(ctx, fileItem.ID, audioPath, config.Language)
 
-		// Cleanup temp WAV
 		os.Remove(audioPath)
 
 		if err != nil {
@@ -219,7 +196,6 @@ func (a *App) runBatch(ctx context.Context, config TranscriptionConfig) {
 			continue
 		}
 
-		// Step 3: Write output
 		outPath, err := WriteOutput(result, fileItem.Path, config.OutputFormat)
 		if err != nil {
 			a.emitStatus(fileItem.ID, "error", 0, err.Error())
