@@ -126,7 +126,7 @@ build-win-vulkan: whisper-lib-win-vulkan bindings frontend
 	CGO_LDFLAGS="-L$(WHISPER_VULKAN)/src -L$(WHISPER_VULKAN)/ggml/src -L$(VULKAN_WIN) -lggml-vulkan -lvulkan-1 -lstdc++" \
 	GOOS=windows GOARCH=amd64 \
 	CC=$(WIN_CC) CXX=$(WIN_CXX) CGO_ENABLED=1 \
-		go build -tags desktop,production -ldflags "-w -s -H windowsgui" \
+		go build -tags desktop,production -ldflags "-w -s -H windowsgui -extldflags '-static'" \
 		-o build/bin/whisper_transcriber.exe .
 	@echo "Built: build/bin/whisper_transcriber.exe Vulkan ($$(du -h build/bin/whisper_transcriber.exe | cut -f1))"
 
